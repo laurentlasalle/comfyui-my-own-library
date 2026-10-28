@@ -1,6 +1,6 @@
 # ComfyUI - My Own Library
 
-A personal library for your ComfyUI creations, in a window modeled on ComfyUI's Templates browser (same size, centered).
+A personal library for your ComfyUI creations, in a window modeled on ComfyUI's Templates browser (same size, centered). The button next to the close button maximizes it to the whole screen (remembered), and a click outside the window closes it.
 
 - **Output view**: lists every image, video and audio file in your `output` folder, newest first, with a badge on the ones already in your library and a **Hide added** toggle.
 - **Library**: the creations you keep are **copied** into a separate library folder. You can then clean up `output` freely; your library keeps its own copies.

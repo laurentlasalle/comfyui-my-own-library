@@ -104,15 +104,14 @@ function debounce(fn, ms) {
 // ------------------------------------------------------------------ styles
 
 const CSS = `
-.mol-dialog{position:fixed;inset:0;margin:auto;width:90vw;height:80vh;max-width:1280px;max-height:1026px;padding:0;box-shadow:0 18px 60px rgba(0,0,0,.5);
+.mol-dialog{position:fixed;inset:0;margin:auto;width:90vw;height:80vh;max-width:1400px;max-height:none;padding:0;box-sizing:border-box;box-shadow:0 18px 60px rgba(0,0,0,.5);
   border:1px solid var(--mol-border);border-radius:16px;background:var(--mol-bg);color:var(--mol-fg);overflow:hidden;
   font-family:inherit;font-size:14px;z-index:10000;
   --mol-bg:#161616;--mol-panel:#1d1d1d;--mol-card:#232323;--mol-hover:#2c2c2c;--mol-border:#2f2f2f;
   --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f0cf98;--mol-danger:#e57373;--mol-input:#1a1a1a}
 .mol-dialog::backdrop{background:rgba(0,0,0,.55)}
-/* Same size rules as ComfyUI's Templates window (BaseModalLayout, size lg) */
-@media (min-width:1450px){.mol-dialog{max-width:1724px}}
-@media (min-width:3000px){.mol-dialog{max-width:2200px;max-height:1320px}}
+/* Same size as ComfyUI's Templates window (BaseModalLayout, size md) */
+.mol-dialog.maximized{width:100vw;height:100vh;max-width:none;max-height:none;border:0;border-radius:0}
 .mol-root{display:flex;height:100%;outline:none}
 .mol-nav{width:270px;flex:none;background:var(--mol-panel);border-right:1px solid var(--mol-border);
   display:flex;flex-direction:column;padding:22px 14px 14px;overflow:auto}
@@ -796,6 +795,7 @@ function renderMain() {
         h("div", { class: "mol-row" },
             h("div", { class: "mol-title" }, viewTitle()),
             h("div", { class: "mol-search" }, icon("search"), searchInput),
+            maximizeButton(),
             h("button", { class: "mol-iconbtn", title: "Close", onclick: close }, icon("times"))),
         isDup ? null : h("div", { class: "mol-row" }, ...filters),
         tagRow);
@@ -1560,6 +1560,7 @@ function renderDetail() {
     info.append(h("div", { class: "mol-infohead" },
         h("button", { class: "mol-iconbtn", title: "Back to grid (Esc)", onclick: closeDetail }, icon("arrow-left")),
         headTitle,
+        maximizeButton(),
         h("button", { class: "mol-iconbtn", title: "Close library", onclick: close }, icon("times"))));
 
     const body = h("div", { class: "mol-infobody" });
@@ -1809,6 +1810,18 @@ function onKey(e) {
     }
 }
 
+// Full-screen window, remembered between visits.
+function applyMaximized() {
+    S.dialog?.classList.toggle("maximized", loadPref("maximized", "0") === "1");
+}
+
+function maximizeButton() {
+    const on = loadPref("maximized", "0") === "1";
+    return h("button", { class: "mol-iconbtn", title: on ? "Restore" : "Maximize",
+        onclick: () => { savePref("maximized", on ? "0" : "1"); applyMaximized(); render(); } },
+    icon(on ? "window-minimize" : "window-maximize"));
+}
+
 async function open(view) {
     injectCSS();
     if (!S.dialog) {
@@ -1817,8 +1830,20 @@ async function open(view) {
         S.dialog.addEventListener("cancel", (e) => { e.preventDefault(); onKey({ key: "Escape", preventDefault() {} }); });
         // Handle our keys, then keep ComfyUI shortcuts from firing behind the window.
         S.dialog.addEventListener("keydown", (e) => { onKey(e); e.stopPropagation(); });
+        // A click on the dimmed backdrop closes the window, like Templates. Only
+        // when the press started there too, so selecting text and releasing
+        // outside the window doesn't close it.
+        let pressOutside = false;
+        const outside = (e) => {
+            if (e.target !== S.dialog) return false;
+            const r = S.dialog.getBoundingClientRect();
+            return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+        };
+        S.dialog.addEventListener("mousedown", (e) => { pressOutside = outside(e); });
+        S.dialog.addEventListener("click", (e) => { if (pressOutside && outside(e)) close(); pressOutside = false; });
         document.body.append(S.dialog);
     }
+    applyMaximized();
     if (view) S.view = view;
     S.detail = null;
     S.dialog.showModal();
