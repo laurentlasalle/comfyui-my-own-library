@@ -25,6 +25,7 @@ from datetime import datetime
 
 from . import metadata as md
 from . import similarity as sim
+from . import dupes
 
 THUMB_SIZE = 512
 SHARED_FIELDS = ("title", "category", "tags", "favorite")
@@ -183,20 +184,28 @@ class Library:
                 "dismissed_suggestions": {}}
 
     def _backfill_signatures(self):
-        todo = [i["id"] for i in self.data["items"].values() if i.get("sig_v") != sim.SIG_VERSION]
+        """Similarity signatures and duplicate fingerprints of creations added
+        before these features, computed once."""
+        todo = [i["id"] for i in self.data["items"].values()
+                if i.get("sig_v") != sim.SIG_VERSION or i.get("hash_v") != dupes.HASH_VERSION]
         for n, item_id in enumerate(todo, 1):
             item = self.get(item_id)
             if not item:
                 continue
-            try:
-                thumb = os.path.join(self.dir, "thumbs", item_id + ".jpg")
-                sig = sim.signature(self.item_path(item), item["kind"], thumb)
-            except Exception:
-                sig = None
+            path = self.item_path(item)
+            update = {}
+            if item.get("sig_v") != sim.SIG_VERSION:
+                try:
+                    thumb = os.path.join(self.dir, "thumbs", item_id + ".jpg")
+                    update["sig"] = sim.signature(path, item["kind"], thumb)
+                except Exception:
+                    update["sig"] = None
+                update["sig_v"] = sim.SIG_VERSION
+            if item.get("hash_v") != dupes.HASH_VERSION:
+                update.update(dupes.fingerprints(path, item["kind"]))
             with self.lock:
                 if item_id in self.data["items"]:
-                    item["sig"] = sig
-                    item["sig_v"] = sim.SIG_VERSION
+                    item.update(update)
                 if n % 20 == 0 or n == len(todo):
                     self._save()
 
@@ -265,11 +274,13 @@ class Library:
         with self.lock:
             items = sorted(self.data["items"].values(), key=lambda i: i.get("added", ""), reverse=True)
             # Similarity signatures stay on the server; the window doesn't need them.
-            items = [{k: v for k, v in i.items() if k not in ("sig", "sig_v")} for i in items]
+            items = [{k: v for k, v in i.items() if k not in ("sig", "sig_v", "sha", "chash", "hash_v")}
+                     for i in items]
             return {
                 "library_dir": self.dir,
                 "categories": list(self.data["categories"]),
                 "items": items,
+                "duplicates": self.duplicates(),
             }
 
     def get(self, item_id):
@@ -281,9 +292,23 @@ class Library:
         with self.lock:
             index = {}
             for item in self.data["items"].values():
+                # Output files skipped or merged as duplicates of this creation
+                # count as in the library too.
+                for src in item.get("also", []):
+                    index["%s|%s|%s" % (src.get("root"), src.get("rel"), src.get("size"))] = item["id"]
+            for item in self.data["items"].values():
                 src = item.get("source") or {}
                 index["%s|%s|%s" % (src.get("root"), src.get("rel"), src.get("size"))] = item["id"]
             return index
+
+    def _find_duplicate(self, fp):
+        with self.lock:
+            for item in self.data["items"].values():
+                if fp.get("sha") and item.get("sha") == fp["sha"]:
+                    return item
+                if fp.get("chash") and item.get("chash") == fp["chash"]:
+                    return item
+        return None
 
     def item_path(self, item, part="main"):
         rel = item.get("file") if part == "main" else item.get("companion")
@@ -387,8 +412,10 @@ class Library:
         }
 
     # ----------------------------------------------------------- mutations
-    def add(self, root, rel, category="", tags=None, title=None):
-        """Copy a file into the library. Returns (item, created_flag)."""
+    def add(self, root, rel, category="", tags=None, title=None, allow_duplicates=False):
+        """Copy a file into the library. Returns (item, status): status is True
+        when added, False when this file was already in, "duplicate" when an
+        identical creation is already in (the file is then linked to it)."""
         full = self.root_path(root, rel)
         if not os.path.isfile(full):
             raise FileNotFoundError(rel)
@@ -397,9 +424,25 @@ class Library:
             raise ValueError("Unsupported file type: %s" % rel)
         st = os.stat(full)
         key = "%s|%s|%s" % (root, rel, st.st_size)
+        if allow_duplicates:
+            # Added on purpose: this file no longer stands for another creation.
+            with self.lock:
+                for item in self.data["items"].values():
+                    if item.get("also"):
+                        item["also"] = [a for a in item["also"] if (a.get("root"), a.get("rel")) != (root, rel)]
         existing = self.source_index().get(key)
         if existing:
             return self.get(existing), False
+
+        fp = dupes.fingerprints(full, kind)
+        if not allow_duplicates:
+            twin = self._find_duplicate(fp)
+            if twin:
+                with self.lock:
+                    twin.setdefault("also", []).append(
+                        {"root": root, "rel": rel, "size": st.st_size, "name": os.path.basename(full)})
+                    self._save()
+                return twin, "duplicate"
 
         item_id = uuid.uuid4().hex[:12]
         ext = os.path.splitext(full)[1].lower()
@@ -451,6 +494,7 @@ class Library:
             "work_id": None,
             "sig": sim.signature(dest, kind, thumb),
             "sig_v": sim.SIG_VERSION,
+            **fp,
         }
         with self.lock:
             if item["category"] and item["category"] not in self.data["categories"]:
@@ -589,8 +633,18 @@ class Library:
         if not item:
             raise ValueError("Not in the library: %s" % rel)
         copy = self.item_path(item)
-        if not copy or not os.path.isfile(copy) or os.path.getsize(copy) != size:
-            raise ValueError("The library copy of %s is missing or incomplete, nothing deleted" % rel)
+        src = item.get("source") or {}
+        if (src.get("root"), src.get("rel")) == (root, rel):
+            if not copy or not os.path.isfile(copy) or os.path.getsize(copy) != size:
+                raise ValueError("The library copy of %s is missing or incomplete, nothing deleted" % rel)
+        else:
+            # A duplicate of this creation: check it really has the same content.
+            if not copy or not os.path.isfile(copy):
+                raise ValueError("The library copy of %s is missing, nothing deleted" % rel)
+            fp = dupes.fingerprints(full, item["kind"])
+            same = (fp["sha"] and fp["sha"] == item.get("sha")) or (fp["chash"] and fp["chash"] == item.get("chash"))
+            if not same:
+                raise ValueError("%s no longer matches its library copy, nothing deleted" % rel)
         freed = 0
         comp = md.companion_png(full)
         os.remove(full)
@@ -602,6 +656,86 @@ class Library:
             except OSError:
                 pass
         return freed
+
+    # ---------------------------------------------------------------- duplicates
+    def duplicates(self):
+        """Groups of identical creations (same file, or same content), oldest first."""
+        with self.lock:
+            groups = {}
+            owner = {}
+            for item in self.data["items"].values():
+                keys = [k for k in (item.get("chash") and "c:" + item["chash"],
+                                    item.get("sha") and "s:" + item["sha"]) if k]
+                gid = next((owner[k] for k in keys if k in owner), None)
+                if gid is None:
+                    gid = item["id"]
+                    groups[gid] = []
+                groups[gid].append(item)
+                for k in keys:
+                    owner.setdefault(k, gid)
+            out = []
+            for members in groups.values():
+                if len(members) > 1:
+                    members.sort(key=lambda m: (m.get("created", ""), m.get("added", "")))
+                    out.append([m["id"] for m in members])
+            return out
+
+    def merge_duplicates(self, ids):
+        """Keep one creation of a group of identical ones; the others leave the
+        library (their output files stay linked to the one kept). Returns the
+        id kept."""
+        with self.lock:
+            group = [self.data["items"][i] for i in ids if i in self.data["items"]]
+            if len(group) < 2:
+                raise ValueError("Nothing to merge")
+            stems = {os.path.splitext((m.get("source") or {}).get("name", ""))[0] for m in group}
+
+            def custom_title(m):
+                return bool(m.get("title")) and m["title"] not in stems
+            # Keep a version of a work if there is one, else the first added.
+            keep = (next((m for m in group if m.get("work_id")), None)
+                    or min(group, key=lambda m: m.get("added", "")))
+            others = [m for m in group if m is not keep]
+            fields = {}
+            tags = list(keep.get("tags", []))
+            for m in others:
+                tags += [t for t in m.get("tags", []) if t.lower() not in (x.lower() for x in tags)]
+            if tags != keep.get("tags", []):
+                fields["tags"] = tags
+            notes = []
+            for m in [keep] + others:
+                n = (m.get("notes") or "").strip()
+                if n and n not in notes:
+                    notes.append(n)
+            if "\n\n".join(notes) != (keep.get("notes") or "").strip():
+                fields["notes"] = "\n\n".join(notes)
+            if not keep.get("favorite") and any(m.get("favorite") for m in others):
+                fields["favorite"] = True
+            if not keep.get("category"):
+                cat = next((m["category"] for m in others if m.get("category")), "")
+                if cat:
+                    fields["category"] = cat
+            if not keep.get("work_id") and not custom_title(keep):
+                named = next((m for m in others if custom_title(m)), None)
+                if named:
+                    fields["title"] = named["title"]
+            # The oldest date is the real time of creation.
+            keep["created"] = min(m.get("created", "") for m in group) or keep.get("created")
+            also = {(a.get("root"), a.get("rel")): a for a in keep.get("also", [])}
+            for m in others:
+                src = m.get("source") or {}
+                for a in [src] + m.get("also", []):
+                    if a.get("rel"):
+                        also.setdefault((a.get("root"), a.get("rel")), {k: a.get(k) for k in ("root", "rel", "size", "name")})
+            mine = keep.get("source") or {}
+            also.pop((mine.get("root"), mine.get("rel")), None)
+            keep["also"] = list(also.values())
+            if fields:
+                self.update(keep["id"], fields)
+            self._save()
+        for m in others:
+            self.remove(m["id"])
+        return keep["id"]
 
     # ------------------------------------------------------------------ versions
     def _members(self, work_id):
@@ -780,6 +914,15 @@ class Library:
             # already belong to a work (a new version could join it).
             dismissed = dismissed_all.get(wf, set())
             items = [i for i in items if i["id"] not in dismissed or i.get("work_id")]
+            # Identical creations are duplicates, not versions: keep one of each.
+            seen_content, unique = set(), []
+            for i in sorted(items, key=lambda i: (not i.get("work_id"), i.get("added", ""))):
+                key = i.get("chash") or i.get("sha")
+                if key and key in seen_content:
+                    continue
+                seen_content.add(key)
+                unique.append(i)
+            items = unique
             if len(items) < 2:
                 continue
 

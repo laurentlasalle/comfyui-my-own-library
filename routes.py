@@ -191,14 +191,18 @@ def setup_routes():
     async def post_add(request):
         body = await request.json()
         lib = library()
-        added, existing, errors = [], [], []
+        added, existing, duplicates, errors = [], [], [], []
         removed, freed = [], 0
         for entry in body.get("files", []):
             try:
                 item, created = await run(lib.add, entry.get("root", "output"), entry["rel"],
                                           body.get("category", ""), body.get("tags", []),
-                                          entry.get("title"))
-                (added if created else existing).append(item)
+                                          entry.get("title"), bool(body.get("allow_duplicates")))
+                if created == "duplicate":
+                    duplicates.append({"root": entry.get("root", "output"), "rel": entry["rel"],
+                                       "id": item["id"], "title": item.get("title")})
+                else:
+                    (added if created else existing).append(item)
             except Exception as e:
                 errors.append({"rel": entry.get("rel"), "error": str(e)})
                 continue
@@ -208,8 +212,21 @@ def setup_routes():
                     removed.append(entry["rel"])
                 except Exception as e:
                     errors.append({"rel": entry.get("rel"), "error": "Added, but not removed from output: %s" % e})
-        return web.json_response({"added": added, "existing": existing, "errors": errors,
+        return web.json_response({"added": added, "existing": existing, "duplicates": duplicates, "errors": errors,
                                   "removed": removed, "freed": freed})
+
+    @routes.post(PREFIX + "/duplicates/merge")
+    async def post_duplicates_merge(request):
+        body = await request.json()
+        lib = library()
+        groups = (await run(lib.duplicates)) if body.get("all") else [body.get("ids", [])]
+        kept, errors = [], []
+        for ids in groups:
+            try:
+                kept.append(await run(lib.merge_duplicates, ids))
+            except Exception as e:
+                errors.append(str(e))
+        return web.json_response({"kept": kept, "errors": errors, **(await run(lib.snapshot))})
 
     @routes.post(PREFIX + "/output/delete")
     async def post_output_delete(request):

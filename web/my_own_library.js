@@ -206,6 +206,9 @@ const CSS = `
 .mol-audio .mol-wave{width:100%;max-height:60%;object-fit:contain;border-radius:12px}
 .mol-audio audio{width:100%}
 .mol-sugtext{flex:1 1 240px;min-width:200px}
+.mol-dupgroup{margin:0 0 26px}
+.mol-dupgroup>.mol-row{margin-bottom:10px}
+.mol-dupcopy .mol-thumb{opacity:.6}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -308,6 +311,7 @@ function applySnapshot(data) {
     S.items = data.items || [];
     S.categories = data.categories || [];
     S.libraryDir = data.library_dir || "";
+    S.duplicates = data.duplicates || [];
 }
 
 async function loadSuggestions() {
@@ -713,6 +717,7 @@ function renderNav() {
         navItem("recent", "Recent", "clock", recent),
         navItem("favorites", "Favorites", "star", works.filter((w) => w.cover.favorite).length),
         navItem("uncategorized", "Uncategorized", "inbox", counts[""] || 0),
+        S.duplicates?.length || S.view === "duplicates" ? navItem("duplicates", "Duplicates", "copy", S.duplicates?.length || 0) : null,
         h("div", { class: "mol-section" }, "Output folder"),
         navItem("output", "Output", "download", S.output.notAdded ? `${S.output.notAdded} new` : undefined),
         h("div", { class: "mol-section" }, "Categories",
@@ -729,6 +734,7 @@ function viewTitle() {
     if (S.view === "favorites") return "Favorites";
     if (S.view === "uncategorized") return "Uncategorized";
     if (S.view === "output") return "Output folder";
+    if (S.view === "duplicates") return "Duplicates";
     return S.view.slice(4);
 }
 
@@ -777,7 +783,9 @@ function renderMain() {
         }, icon(S.hideAdded ? "eye-slash" : "eye"), "Hide added"));
     }
 
-    const tags = isOutput ? [] : allTags();
+    // The Duplicates view lists every group; filters don't apply there.
+    const isDup = S.view === "duplicates";
+    const tags = isOutput || isDup ? [] : allTags();
     const tagRow = tags.length ? h("div", { class: "mol-tagfilter" },
         ...tags.slice(0, 40).map((t) => h("span", {
             class: "mol-tag" + (S.tags.has(t.name.toLowerCase()) ? " active" : ""),
@@ -789,7 +797,7 @@ function renderMain() {
             h("div", { class: "mol-title" }, viewTitle()),
             h("div", { class: "mol-search" }, icon("search"), searchInput),
             h("button", { class: "mol-iconbtn", title: "Close", onclick: close }, icon("times"))),
-        h("div", { class: "mol-row" }, ...filters),
+        isDup ? null : h("div", { class: "mol-row" }, ...filters),
         tagRow);
 
     const main = h("section", { class: "mol-main" }, head);
@@ -954,7 +962,75 @@ function renderReview() {
     return panel;
 }
 
+// Groups of identical creations: same file, or same pixels / frames / samples
+// with different metadata. "Keep one" merges each group into one creation.
+const byId = (id) => S.items.find((x) => x.id === id);
+
+function keptOf(group) {
+    // Same rule as the server: a version of a work if any, else the first added.
+    return group.find((it) => it.work_id) || [...group].sort((a, b) => (a.added || "").localeCompare(b.added || ""))[0];
+}
+
+async function mergeDuplicates(body) {
+    try {
+        const res = await call("/duplicates/merge", body);
+        applySnapshot(res);
+        await loadSuggestions();
+        if (res.errors?.length) toast("Some duplicates were not merged", res.errors.join("\n"), "warn");
+        else toast("Duplicates merged", `${res.kept.length} creation${res.kept.length > 1 ? "s" : ""} kept`);
+    } catch (e) {
+        toast("Could not merge", e.message, "error");
+    }
+    render();
+}
+
+function renderDuplicates() {
+    const wrap = h("div", { class: "mol-grid-wrap" });
+    const groups = (S.duplicates || []).map((ids) => ids.map(byId).filter(Boolean)).filter((g) => g.length > 1);
+    if (!groups.length) {
+        wrap.append(h("div", { class: "mol-empty" }, "No duplicates in your library."));
+        return wrap;
+    }
+    const extra = groups.reduce((n, g) => n + g.length - 1, 0);
+    wrap.append(h("div", { class: "mol-suggestion" },
+        h("div", { class: "mol-sugtext" },
+            h("b", {}, `${groups.length} group${groups.length > 1 ? "s" : ""} of identical creations`),
+            h("div", { class: "mol-hint" }, "Same file, or same image, video or sound with different metadata. "
+                + "Keep one merges tags, notes and favorite into the creation kept and takes the oldest date; "
+                + "the other copies leave the library (files in output are not touched).")),
+        h("button", { class: "mol-btn primary", onclick: () => {
+            if (confirm(`Merge all ${groups.length} groups?\n${extra} library cop${extra > 1 ? "ies" : "y"} will be removed. Files in the output folder are not touched.`))
+                mergeDuplicates({ all: true });
+        } }, icon("check"), `Keep one of each (${groups.length})`)));
+    for (const group of groups) {
+        const kept = keptOf(group);
+        const works = groupWorks(group);
+        const grid = h("div", { class: "mol-grid" });
+        for (const it of [kept, ...group.filter((x) => x !== kept)]) {
+            const pos = it.work_id ? membersOf(it).indexOf(it) + 1 : 0;
+            const thumb = h("div", { class: "mol-thumb" },
+                thumbEl(itemThumb(it), it.kind, itemFile(it)),
+                kindBadge(it.kind, "mol-badge lib"),
+                it === kept ? h("span", { class: "mol-topright" }, h("span", { class: "mol-ver" }, "Kept")) : null);
+            attachHoverPlay(thumb, it.kind, itemFile(it));
+            grid.append(h("div", { class: "mol-card" + (it === kept ? "" : " mol-dupcopy"), onclick: () => openItemById(it.id, works) },
+                thumb,
+                h("div", { class: "mol-cardtitle", title: it.title }, it.title),
+                h("div", { class: "mol-hint", style: { marginTop: "-4px" } },
+                    fmtDate(it.created), pos ? ` · v${pos} of a work` : "", it.source?.name ? ` · ${it.source.name}` : "")));
+        }
+        wrap.append(h("div", { class: "mol-dupgroup" },
+            h("div", { class: "mol-row" },
+                h("b", {}, `${group.length} identical copies`),
+                h("span", { class: "mol-spacer" }),
+                h("button", { class: "mol-btn", onclick: () => mergeDuplicates({ ids: group.map((x) => x.id) }) }, icon("check"), "Keep one")),
+            grid));
+    }
+    return wrap;
+}
+
 function renderItemGrid() {
+    if (S.view === "duplicates") return renderDuplicates();
     const works = filteredWorks();
     const wrap = h("div", { class: "mol-grid-wrap" });
     const banner = renderSuggestion();
@@ -1073,8 +1149,26 @@ async function removeWorks(works) {
     render();
 }
 
+function renderSkippedDuplicates() {
+    const sk = S.skippedDups;
+    if (!sk) return null;
+    const names = sk.list.slice(0, 3).map((d) => `${d.rel.split("/").pop()} (same as "${d.title}")`).join(", ")
+        + (sk.list.length > 3 ? `, and ${sk.list.length - 3} more` : "");
+    return h("div", { class: "mol-suggestion" },
+        h("div", { class: "mol-sugtext" },
+            h("b", {}, `${sk.list.length} file${sk.list.length > 1 ? "s were" : " was"} not copied: identical to creations already in your library.`),
+            h("div", { class: "mol-hint" }, names + (sk.list.length > 1
+                ? ". They count as added, so you can delete them from output."
+                : ". It counts as added, so you can delete it from output."))),
+        h("button", { class: "mol-btn", onclick: () => { S.skippedDups = null; render(); } }, "OK"),
+        h("button", { class: "mol-btn", title: "Copy them to the library as separate creations",
+            onclick: () => { S.skippedDups = null; addFiles(sk.files, sk.category, sk.tags, false, true); } }, "Add anyway"));
+}
+
 function renderOutputGrid() {
     const wrap = h("div", { class: "mol-grid-wrap" });
+    const skipped = renderSkippedDuplicates();
+    if (skipped) wrap.append(skipped);
     const files = S.output.files;
     if (!files.length) {
         wrap.append(h("div", { class: "mol-empty" }, S.output.loading ? "Loading" : "No images or videos in the output folder."));
@@ -1304,15 +1398,22 @@ function renderOutputBar() {
         }, icon("plus"), `Add ${toAdd.length || ""} to library`));
 }
 
-async function addFiles(files, category = "", tags = [], removeAfter = false) {
+async function addFiles(files, category = "", tags = [], removeAfter = false, allowDuplicates = false) {
     if (!files.length) return;
     toast("Adding to library", `${files.length} file(s), copying`, "info");
     try {
-        const res = await call("/add", { files, category, tags, remove_after: !!removeAfter });
+        const res = await call("/add", { files, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates });
         S.items = res.added.concat(S.items);
         S.selected.clear();
+        const dups = res.duplicates || [];
+        // Files identical to a creation already in the library are linked to it
+        // instead of copied again; offer to add them anyway (unless just deleted).
+        const gone = new Set(res.removed || []);
+        const kept = dups.filter((d) => !gone.has(d.rel));
+        S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, list: kept } : null;
         if (res.errors.length) toast("Some files were not added", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
         toast("Added to library", `${res.added.length} added${res.existing.length ? `, ${res.existing.length} already there` : ""}`
+            + (dups.length ? `, ${dups.length} skipped as identical to a creation already in the library` : "")
             + (res.removed?.length ? `, ${res.removed.length} removed from output (${fmtSize(res.freed)})` : ""));
         await loadLibrary();
         if (S.dialog?.open) { await loadOutput(true); render(); }

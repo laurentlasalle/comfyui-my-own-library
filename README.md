@@ -6,6 +6,7 @@ A personal library for your ComfyUI creations, in a window modeled on ComfyUI's 
 - **Library**: the creations you keep are **copied** into a separate library folder. You can then clean up `output` freely; your library keeps its own copies.
 - **Clean up output**: files already copied to the library can be deleted from `output`, one at a time or in bulk, or right when you add them (**Remove from output after adding**). Deletion is permanent and only happens after checking that the library copy is complete.
 - **Versions**: iterations of one work are grouped on a single card (**v4** badge), numbered in order of creation (or in the order you choose), with a strip to switch between them and a **Changes since** summary (seed, words added or removed in the prompts, models and LoRAs). The library suggests grouping creations that come from the same workflow **and** look (or sound) alike; you can also group, separate and choose the cover by hand.
+- **Duplicates**: a file identical to a creation already in the library (same file, or same pixels, frames or sound with different metadata, as when a workflow runs again with the same seed) is not copied twice. It is linked to that creation instead, so it counts as added and can be deleted from `output`. Identical creations already in the library are listed under **Duplicates**, where **Keep one** merges them.
 - **Organize**: one category per creation (left column), any number of tags, a title, notes and a favorite star. Tags are suggested as you type, from the tags you already use.
 - **Model families**: each thumbnail shows the families of the models that produced it, stacked in order of execution (for example Qwen Image 2.1 then SeedVR2), detected from the model file names and node types. Only models that actually contributed count: bypassed or muted nodes, and branches that don't lead to the node that saved the file, are ignored. You can correct the list per creation, and filter the library by family.
 - **Prompts and settings**: positive and negative prompts, seed, models and LoRAs are read from the file's embedded ComfyUI metadata and shown next to the preview. Search looks into titles, notes, tags, prompts and model names.
@@ -51,6 +52,8 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Browse versions | Click a version in the strip under the preview, or use **↑** / **↓**. **Set as cover** picks the version shown on the card; **Separate** makes a version a standalone creation again, with its own title and tags back. |
 | Select in the output folder | **Select not in library** and **Select added** cover the whole output folder (within the current filters), not only the files displayed: the view loads 200 files at a time, but the selection, adding and deleting apply to every selected file. |
 | Delete from output | In the Output view, **Select added** then **Delete N from output**, or **Delete from output** in a file's panel. Only files already in the library can be deleted, after confirmation. |
+| Duplicates skipped when adding | A banner in the Output view lists the files that were not copied and which creation each one matches. **Add anyway** copies them as separate creations. |
+| Merge duplicates | **Duplicates** in the left column (shown only when there are some). **Keep one** keeps a single creation per group: a version of a work if one of the copies is in a work, otherwise the first added. It gets the tags and notes of all the copies, stays a favorite if any copy was, and takes the oldest creation date. The other copies leave the library; files in `output` are not touched. **Keep one of each** does it for every group, after confirmation. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
 | Work on several creations | Tick cards (checkbox on hover) or use **Select all shown** for the whole current view, then **Move to category**, **Add tags**, **Remove N from library** (a card with versions is removed with all its versions, after confirmation) or **Group as versions**. |
 
@@ -61,6 +64,8 @@ Two creations from the same workflow are suggested as versions only if they are 
 - **Images**: overall structure (shapes, composition, light and dark areas) and the colors of a 4×4 grid, compared on the thumbnail.
 - **Videos**: the same comparison on four frames spread over the video, plus the duration.
 - **Audio**: the loudness envelope over time and the duration. A take with the same text and rhythm scores high; a different text or a much shorter clip doesn't.
+
+Identical creations are duplicates rather than versions, so they are never suggested as versions of each other.
 
 Groups are kept tight: a creation joins a suggestion only if it resembles **every** creation in it, not just one, so a long series can't drift from one look to another. Images and videos must also share their dominant colors, whatever their layout.
 
