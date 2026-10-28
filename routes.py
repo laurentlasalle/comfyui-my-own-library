@@ -244,6 +244,10 @@ def setup_routes():
                 await run(lib.ungroup, body.get("id", ""))
             elif action == "cover":
                 await run(lib.set_cover, body.get("id", ""))
+            elif action == "order":
+                await run(lib.set_order, body.get("work_id", ""), body.get("ids", []))
+            elif action == "sortbydate":
+                await run(lib.sort_by_date, body.get("work_id", ""))
             elif action == "dismiss":
                 await run(lib.dismiss_suggestion, body.get("workflow_id", ""), body.get("ids"))
             else:

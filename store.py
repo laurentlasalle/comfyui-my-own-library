@@ -607,9 +607,38 @@ class Library:
     def _members(self, work_id):
         return [i for i in self.data["items"].values() if i.get("work_id") == work_id]
 
+    @staticmethod
+    def _ordered(members):
+        """Versions in their order: the one set by hand if any, else by creation."""
+        return sorted(members, key=lambda m: (m.get("work_pos") is None, m.get("work_pos") or 0,
+                                              m.get("created", ""), m.get("added", "")))
+
+    def set_order(self, work_id, ids):
+        """Put the versions of a work in this order (all of them, by id)."""
+        with self.lock:
+            members = self._members(work_id)
+            if not members:
+                raise KeyError(work_id)
+            if sorted(ids) != sorted(m["id"] for m in members):
+                raise ValueError("The list doesn't match the versions of this work")
+            for pos, item_id in enumerate(ids):
+                self.data["items"][item_id]["work_pos"] = pos
+            self._save()
+
+    def sort_by_date(self, work_id):
+        """Forget the order set by hand: versions follow their creation dates again."""
+        with self.lock:
+            members = self._members(work_id)
+            if not members:
+                raise KeyError(work_id)
+            for m in members:
+                m.pop("work_pos", None)
+            self._save()
+
     def _leave_work(self, item):
         item["work_id"] = None
         item.pop("work_cover", None)
+        item.pop("work_pos", None)
         solo = item.pop("solo", None)
         if solo:
             for k, v in solo.items():
@@ -638,6 +667,24 @@ class Library:
                 for m in self._members(wid):
                     members[m["id"]] = m
             members = list(members.values())
+            # Each work keeps its own order of versions; the works and the loose
+            # creations are then interleaved by creation date.
+            sequences, seen_works = [], set()
+            for m in sorted(members, key=lambda m: (m.get("created", ""), m.get("added", ""))):
+                wid = m.get("work_id")
+                if wid and wid in existing:
+                    if wid not in seen_works:
+                        seen_works.add(wid)
+                        sequences.append(self._ordered([x for x in members if x.get("work_id") == wid]))
+                else:
+                    sequences.append([m])
+            manual = any(m.get("work_pos") is not None for m in members)
+            order = []
+            while sequences:
+                first = min(sequences, key=lambda seq: (seq[0].get("created", ""), seq[0].get("added", "")))
+                order.append(first.pop(0))
+                if not first:
+                    sequences.remove(first)
             # A title typed by hand wins over one taken from a file name; then the
             # work already present in the selection; then the newest creation.
             stems = {os.path.splitext((m.get("source") or {}).get("name", ""))[0] for m in members}
@@ -667,6 +714,11 @@ class Library:
                 m["favorite"] = favorite
                 m["work_cover"] = m["id"] == cover
                 m["modified"] = _now_iso()
+            for pos, m in enumerate(order):
+                if manual:
+                    m["work_pos"] = pos
+                else:
+                    m.pop("work_pos", None)
             self._save()
             return work_id
 

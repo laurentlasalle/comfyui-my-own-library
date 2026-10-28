@@ -190,6 +190,7 @@ const CSS = `
 .mol-strip{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;padding:12px;background:linear-gradient(transparent,rgba(0,0,0,.8));overflow-x:auto}
 .mol-stripitem{position:relative;width:64px;height:64px;padding:0;border:2px solid transparent;border-radius:9px;overflow:hidden;background:#222;cursor:pointer;flex:none}
 .mol-stripitem.active{border-color:var(--mol-accent)}
+.mol-stripitem.drop{border-color:#fff;transform:scale(1.08)}
 .mol-stripitem img{width:100%;height:100%;object-fit:cover;display:block}
 .mol-stripitem span{position:absolute;left:4px;bottom:3px;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px #000}
 .mol-preview.has-strip{padding-bottom:92px}
@@ -462,8 +463,11 @@ function filteredItems() {
 
 const byCreated = (a, b) => (a.created || "").localeCompare(b.created || "") || (a.added || "").localeCompare(b.added || "");
 
+// Versions in their order: the one set by hand if any, else by creation.
+const byVersion = (a, b) => (a.work_pos ?? Infinity) - (b.work_pos ?? Infinity) || byCreated(a, b);
+
 function membersOf(it) {
-    return it.work_id ? S.items.filter((x) => x.work_id === it.work_id).sort(byCreated) : [it];
+    return it.work_id ? S.items.filter((x) => x.work_id === it.work_id).sort(byVersion) : [it];
 }
 
 const coverOf = (members) => members.find((m) => m.work_cover) || members[members.length - 1];
@@ -509,7 +513,7 @@ async function groupIds(ids) {
         await loadSuggestions();
         S.libSelected.clear();
         const n = S.items.filter((x) => x.work_id === data.work_id).length;
-        toast("Grouped as versions", `${n} versions, in order of creation`);
+        toast("Grouped as versions", `${n} versions`);
     } catch (e) {
         toast("Could not group", e.message, "error");
     }
@@ -1339,6 +1343,25 @@ function moveDetail(step) {
     render();
 }
 
+// Move the version shown one step earlier or later in the work.
+async function shiftVersion(step) {
+    const work = S.detail?.type === "item" ? S.detail.list[S.detail.index] : null;
+    if (!work || work.members.length < 2) return;
+    const members = work.members;
+    const from = S.detail.ver ?? members.indexOf(work.cover);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= members.length) return;
+    await reorderVersions(members, from, to);
+}
+
+async function reorderVersions(members, from, to) {
+    const ids = members.map((m) => m.id);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    await versionAction("order", { work_id: members[0].work_id, ids });
+    refreshDetailWork(moved);
+}
+
 function moveVersion(step) {
     const work = S.detail?.type === "item" ? S.detail.list[S.detail.index] : null;
     if (!work || work.members.length < 2) return;
@@ -1403,12 +1426,26 @@ function renderDetail() {
     const entry = isItem ? members[ver] : list[index];
     const media = isItem ? itemFile(entry) : fileSource(entry);
 
+    // Drag a thumbnail of the strip to put that version elsewhere.
+    let dragFrom = null;
     const strip = members.length > 1 ? h("div", { class: "mol-strip" },
         ...members.map((m, i) => h("button", {
             class: "mol-stripitem" + (i === ver ? " active" : ""),
-            title: `v${i + 1} · ${fmtDate(m.created)}${m.work_cover ? " · cover" : ""} (↑ / ↓)`,
+            title: `v${i + 1} · ${fmtDate(m.created)}${m.work_cover ? " · cover" : ""}\n↑ / ↓ to browse, drag or Alt+↑ / Alt+↓ to move`,
+            draggable: "true",
             onclick: () => { S.detail.ver = i; render(); },
-        }, h("img", { src: itemThumb(m), alt: "" }), h("span", {}, `v${i + 1}`)))) : null;
+            ondragstart: (e) => { dragFrom = i; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", m.id); },
+            ondragover: (e) => { if (dragFrom === null) return; e.preventDefault(); e.currentTarget.classList.add("drop"); },
+            ondragleave: (e) => e.currentTarget.classList.remove("drop"),
+            ondragend: () => { dragFrom = null; },
+            ondrop: async (e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove("drop");
+                const from = dragFrom;
+                dragFrom = null;
+                if (from !== null && from !== i) await reorderVersions(members, from, i);
+            },
+        }, h("img", { src: itemThumb(m), alt: "", draggable: "false" }), h("span", {}, `v${i + 1}`)))) : null;
 
     const preview = h("div", { class: "mol-preview" + (strip ? " has-strip" : "") },
         previewEl(entry.kind, media, isItem ? itemThumb(entry) : fileThumb(entry)),
@@ -1557,6 +1594,13 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         h("button", { class: "mol-btn", disabled: !!it.work_cover, title: "Show this version on the card",
             onclick: async () => { await versionAction("cover", { id: it.id }); refreshDetailWork(it.id); } },
         icon("image"), it.work_cover ? "Cover" : "Set as cover"),
+        h("button", { class: "mol-iconbtn", disabled: ver === 0, title: "Move this version earlier (Alt+↑)",
+            onclick: () => shiftVersion(-1) }, icon("arrow-up")),
+        h("button", { class: "mol-iconbtn", disabled: ver === members.length - 1, title: "Move this version later (Alt+↓)",
+            onclick: () => shiftVersion(1) }, icon("arrow-down")),
+        members.some((m) => m.work_pos != null) ? h("button", { class: "mol-btn", title: "Put the versions back in order of creation",
+            onclick: async () => { await versionAction("sortbydate", { work_id: it.work_id }); refreshDetailWork(it.id); } },
+        icon("sort"), "Sort by date") : null,
         h("button", { class: "mol-btn", title: "Make this version a separate creation again",
             onclick: async () => { await versionAction("ungroup", { id: it.id }); refreshDetailWork(it.id); } },
         icon("external-link"), "Separate"),
@@ -1657,6 +1701,8 @@ function onKey(e) {
     if (S.detail && !typing) {
         if (e.key === "ArrowLeft") moveDetail(-1);
         if (e.key === "ArrowRight") moveDetail(1);
+        if (e.key === "ArrowUp" && e.altKey) { e.preventDefault(); shiftVersion(-1); return; }
+        if (e.key === "ArrowDown" && e.altKey) { e.preventDefault(); shiftVersion(1); return; }
         if (e.key === "ArrowUp") { e.preventDefault(); moveVersion(-1); }
         if (e.key === "ArrowDown") { e.preventDefault(); moveVersion(1); }
     }
