@@ -2,6 +2,11 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.7.4 (2026-10-29)
+
+- **Changes since**: prompt changes are shown in the text itself, like tracked changes (added words highlighted, removed ones struck through, at their place). A prompt that is mostly new shows **Rewritten**, with **Show differences**.
+- Fixed: long prompts and file names overflowed the **Changes since** box. Model and LoRA names are cut with an ellipsis; hover one for its full name.
+
 ## 0.7.3 (2026-10-29)
 
 - The buttons that reorder versions are now labeled **Move earlier** / **Move later** (they were two bare arrows that looked like browsing).

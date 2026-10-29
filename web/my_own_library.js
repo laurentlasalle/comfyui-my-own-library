@@ -213,9 +213,18 @@ const CSS = `
 .mol-stripitem span{position:absolute;left:4px;bottom:3px;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px #000}
 .mol-preview.has-strip{padding-bottom:92px}
 .mol-changes{border:1px solid var(--mol-border);border-radius:10px;padding:12px 14px;display:grid;gap:8px;font-size:13px;background:var(--mol-input)}
-.mol-changes .row{display:flex;gap:10px}
+.mol-changes .row{display:flex;gap:10px;min-width:0}
 .mol-changes .key{color:var(--mol-dim);width:84px;flex:none}
-.mol-changes .val{display:flex;flex-wrap:wrap;gap:4px 8px}
+.mol-changes .val{flex:1;min-width:0}
+.mol-changes .val.inline{display:flex;flex-wrap:wrap;gap:4px 8px}
+.mol-changes .val.names{display:flex;flex-direction:column;gap:2px}
+.mol-changes .val.block{display:flex;flex-direction:column;gap:6px}
+.mol-chgname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mol-difftext{line-height:1.6;overflow-wrap:anywhere}
+.mol-ins{background:rgba(129,199,132,.18);color:#a5d6a7;border-radius:3px;padding:0 2px}
+.mol-rewritten{color:var(--mol-fg)}
+.mol-linkbtn{background:none;border:0;padding:0;color:var(--mol-dim);text-decoration:underline;cursor:pointer;font:inherit}
+.mol-linkbtn:hover{color:var(--mol-fg)}
 .mol-add{color:#81c784}
 .mol-del{color:#e57373;text-decoration:line-through}
 .mol-checkline{display:inline-flex;align-items:center;gap:8px;color:var(--mol-dim);cursor:pointer;user-select:none}
@@ -2013,48 +2022,82 @@ function renderDetail() {
 }
 
 // What changed between two versions: seed, prompt words, models, LoRAs.
-function tokens(text) {
-    return (text || "").split(/[\s,;]+/).map((t) => t.replace(/^[("'\[]+|[)"'.!?:\]]+$/g, "")).filter(Boolean);
-}
-
-function wordDiff(before, after) {
-    const count = new Map();
-    for (const t of tokens(before)) count.set(t.toLowerCase(), (count.get(t.toLowerCase()) || 0) + 1);
-    const added = [];
-    for (const t of tokens(after)) {
-        const k = t.toLowerCase();
-        if (count.get(k)) count.set(k, count.get(k) - 1);
-        else added.push(t);
+// Prompt changes shown in the text itself, like tracked changes: words added
+// highlighted, words removed struck through, at their place in the sentence.
+function inlineDiff(before, after) {
+    // Words and punctuation are separate tokens, so "fisherman," vs "fisherman" isn't a change.
+    const split = (t) => t.match(/[^\s,.;:!?()]+|[,.;:!?()]/g) || [];
+    const A = split(before);
+    const B = split(after);
+    const n = A.length, m = B.length;
+    const ops = [];
+    if (n * m <= 400000) {
+        // Longest common subsequence of words (case-insensitive).
+        const la = A.map((w) => w.toLowerCase()), lb = B.map((w) => w.toLowerCase());
+        const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+        for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+            L[i][j] = la[i] === lb[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+        let i = 0, j = 0;
+        while (i < n && j < m) {
+            if (la[i] === lb[j]) { ops.push(["=", B[j]]); i++; j++; }
+            else if (L[i + 1][j] >= L[i][j + 1]) ops.push(["-", A[i++]]);
+            else ops.push(["+", B[j++]]);
+        }
+        while (i < n) ops.push(["-", A[i++]]);
+        while (j < m) ops.push(["+", B[j++]]);
+    } else {
+        // Very long prompts: everything removed, then everything added.
+        A.forEach((w) => ops.push(["-", w]));
+        B.forEach((w) => ops.push(["+", w]));
     }
-    const left = new Map(count);
-    const removed = [];
-    for (const t of tokens(before)) {
-        const k = t.toLowerCase();
-        if (left.get(k)) { removed.push(t); left.set(k, left.get(k) - 1); }
-    }
-    return { added, removed };
+    const changed = ops.filter((o) => o[0] !== "=").length;
+    // Consecutive tokens of the same kind form one run; no space before punctuation.
+    const parts = [];
+    let run = null;
+    ops.forEach(([op, w], k) => {
+        const glue = k && !/^[,.;:!?)]$/.test(w) && !/^\($/.test(ops[k - 1][1]) ? " " : "";
+        if (run && run.op === op && op !== "=") { run.el.textContent += glue + w; return; }
+        if (glue) parts.push(glue);
+        if (op === "=") { parts.push(w); run = null; return; }
+        run = { op, el: h("span", { class: op === "+" ? "mol-ins" : "mol-del" }, w) };
+        parts.push(run.el);
+    });
+    return { parts, ratio: (n + m) ? changed / Math.max(1, ops.length) : 0 };
 }
 
 function changesBlock(prev, cur, prevLabel) {
     const a = prev.summary || {};
     const b = cur.summary || {};
     const rows = [];
-    const row = (key, ...vals) => rows.push(h("div", { class: "row" }, h("span", { class: "key" }, key), h("span", { class: "val" }, ...vals)));
-    const list = (added, removed) => [...added.map((x) => h("span", { class: "mol-add" }, "+ " + x)),
-        ...removed.map((x) => h("span", { class: "mol-del" }, x))];
+    const row = (key, cls, ...vals) => rows.push(h("div", { class: "row" }, h("span", { class: "key" }, key), h("div", { class: "val " + cls }, ...vals)));
+    // File names: one per line, cut with an ellipsis, full name on hover.
+    const names = (added, removed) => [...added.map((x) => h("span", { class: "mol-add mol-chgname", title: x }, "+ " + x)),
+        ...removed.map((x) => h("span", { class: "mol-del mol-chgname", title: x }, x))];
     const sa = (a.seeds || []).join(", ");
     const sb = (b.seeds || []).join(", ");
-    if (sa !== sb) row("Seed", h("span", { class: "mol-del" }, sa || "none"), h("span", {}, "→"), h("span", { class: "mol-add" }, sb || "none"));
+    if (sa !== sb) row("Seed", "inline", h("span", { class: "mol-del" }, sa || "none"), h("span", {}, "→"), h("span", { class: "mol-add" }, sb || "none"));
     for (const [key, label] of [["positive", "Positive"], ["negative", "Negative"], ["text", "Text"]]) {
-        const d = wordDiff((a[key] || []).join(" "), (b[key] || []).join(" "));
-        if (d.added.length || d.removed.length) row(label, ...list(d.added, d.removed));
+        const before = (a[key] || []).join(" ");
+        const after = (b[key] || []).join(" ");
+        if (before.trim() === after.trim()) continue;
+        const d = inlineDiff(before, after);
+        const text = h("div", { class: "mol-difftext" }, ...d.parts);
+        if (d.ratio > 0.5) {
+            // Mostly new text: a word-by-word listing says nothing, show it on demand.
+            text.hidden = true;
+            const link = h("button", { class: "mol-linkbtn", type: "button" }, "Show differences");
+            link.addEventListener("click", () => { text.hidden = !text.hidden; link.textContent = text.hidden ? "Show differences" : "Hide differences"; });
+            row(label, "block", h("div", {}, h("span", { class: "mol-rewritten" }, before ? "Rewritten" : "Added"), " ", link), text);
+        } else {
+            row(label, "block", text);
+        }
     }
     for (const [key, label] of [["models", "Models"], ["loras", "LoRAs"]]) {
         const pa = new Set(a[key] || []);
         const pb = new Set(b[key] || []);
         const added = [...pb].filter((x) => !pa.has(x));
         const removed = [...pa].filter((x) => !pb.has(x));
-        if (added.length || removed.length) row(label, ...list(added, removed));
+        if (added.length || removed.length) row(label, "names", ...names(added, removed));
     }
     return h("div", { class: "mol-field" }, h("label", {}, `Changes since ${prevLabel}`),
         h("div", { class: "mol-changes" }, ...(rows.length ? rows
