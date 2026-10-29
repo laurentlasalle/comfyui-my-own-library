@@ -27,7 +27,7 @@ _library_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------ progress
-# The window sends long operations in small batches; each batch says where it
+# The window sends long operations one file at a time; each request says where it
 # stands in the whole job, so the terminal shows "37/240" and a summary at the end.
 _jobs = {}
 

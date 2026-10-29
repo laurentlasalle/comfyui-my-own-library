@@ -1142,7 +1142,7 @@ async function removeWorks(works) {
     const what = works.length === 1 ? `"${works[0].cover.title}"${versions}` : `${works.length} creations${versions}`;
     if (!confirm(`Remove ${what} from your library, ${fmtSize(size)}?\n\n`
         + "The library copies are deleted permanently. Files still in the output folder are not touched.")) return;
-    const job = await runJob("Removing from library", members.map((m) => m.id), 20,
+    const job = await runJob("Removing from library", members.map((m) => m.id), 1,
         (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
     if (!job) return;
     const last = job.results[job.results.length - 1];
@@ -1344,9 +1344,9 @@ async function selectWholeFolder(which) {
 }
 
 // ------------------------------------------------------------------- jobs
-// Long operations (adding, moving, deleting many files) are sent in small
-// batches: the window shows the progress, other actions wait, and Cancel stops
-// after the current batch. The server prints each file in the terminal.
+// Long operations (adding, moving, deleting many files) are sent one file at a
+// time: the window shows the progress, other actions wait, and Cancel stops
+// after the current file. The server prints each file in the terminal.
 
 async function runJob(label, list, size, send) {
     if (S.job) { toast("Please wait", `${S.job.label} is still running`, "warn"); return null; }
@@ -1398,7 +1398,7 @@ function updateJobProgress() {
     if (!job?.text) return;
     const name = typeof job.next === "string" ? "" : (job.next?.rel || job.next?.name || "").split("/").pop();
     job.text.textContent = job.cancel
-        ? `${job.label}: stopping after the current batch (${job.done} / ${job.total})`
+        ? `${job.label}: stopping after the current file (${job.done} / ${job.total})`
         : `${job.label}: ${job.done} / ${job.total}` + (name && job.done < job.total ? ` · ${name}` : "");
     job.bar.style.width = (job.total ? (100 * job.done) / job.total : 0) + "%";
     job.btn.disabled = job.cancel;
@@ -1411,7 +1411,7 @@ async function deleteFromOutput(files) {
         ? `Permanently delete "${files[0].name}" (${fmtSize(total)}) from the output folder?`
         : `Permanently delete ${files.length} files (${fmtSize(total)}) from the output folder?`;
     if (!confirm(msg + "\n\nYour library keeps its copies. This cannot be undone.")) return false;
-    const job = await runJob("Deleting from output", files.map((f) => ({ root: f.root, rel: f.rel })), 20,
+    const job = await runJob("Deleting from output", files.map((f) => ({ root: f.root, rel: f.rel })), 1,
         (chunk, info) => call("/output/delete", { files: chunk, job: info }));
     if (!job) return false;
     const deleted = job.results.flatMap((r) => r.deleted || []);
@@ -1482,7 +1482,7 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
     if (!files.length) return;
     if (!S.dialog?.open) toast("Adding to library", `${files.length} file(s), copying`, "info");
     const label = removeAfter ? "Moving to library" : "Adding to library";
-    const job = await runJob(label, files, 10, (chunk, info) =>
+    const job = await runJob(label, files, 1, (chunk, info) =>
         call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates, job: info }));
     if (!job) return;
     const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], freed: 0 };
