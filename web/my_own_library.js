@@ -107,19 +107,22 @@ const CSS = `
 .mol-dialog{position:fixed;inset:0;margin:auto;width:90vw;height:80vh;max-width:1400px;max-height:none;padding:0;box-sizing:border-box;box-shadow:0 18px 60px rgba(0,0,0,.5);
   border:1px solid var(--mol-border);border-radius:16px;background:var(--mol-bg);color:var(--mol-fg);overflow:hidden;
   font-family:inherit;font-size:14px;z-index:10000;
-  --mol-bg:#161616;--mol-panel:#1d1d1d;--mol-card:#232323;--mol-hover:#2c2c2c;--mol-border:#2f2f2f;
+  --mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
   --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f0cf98;--mol-danger:#e57373;--mol-input:#1a1a1a}
 .mol-dialog::backdrop{background:rgba(0,0,0,.55)}
 /* Same size as ComfyUI's Templates window (BaseModalLayout, size md) */
 .mol-dialog.maximized{width:100vw;height:100vh;max-width:none;max-height:none;border:0;border-radius:0}
 .mol-root{display:flex;height:100%;outline:none}
-.mol-nav{width:270px;flex:none;background:var(--mol-panel);border-right:1px solid var(--mol-border);
-  display:flex;flex-direction:column;padding:22px 14px 14px;overflow:auto}
-.mol-brand{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:600;padding:0 10px 18px}
-.mol-navitem{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;
-  color:var(--mol-fg);user-select:none}
+/* Left column: same measures as Templates (LeftSidePanel, NavItem, NavTitle) */
+.mol-nav{width:224px;flex:none;background:var(--mol-panel);
+  display:flex;flex-direction:column;gap:4px;padding:0 12px 12px;overflow:auto;box-sizing:border-box}
+.mol-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;height:72px;flex:none;padding-left:12px;margin-bottom:-4px}
+.mol-navitem{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:6px;cursor:pointer;
+  color:var(--mol-fg);user-select:none;font-size:14px;line-height:20px}
+.mol-navitem>i{font-size:14px}
+.mol-section ~ .mol-navitem{margin-top:4px}
 .mol-navitem:hover{background:var(--mol-hover)}
-.mol-navitem.active{background:#2e2e2e}
+.mol-navitem.active{background:#3c3d42}
 .mol-navitem .mol-count{margin-left:auto;color:var(--mol-dim);font-size:12px}
 .mol-navitem .mol-tools{display:none;margin-left:auto;gap:6px}
 .mol-navitem:hover .mol-tools{display:flex}
@@ -127,25 +130,35 @@ const CSS = `
 .mol-tools i{opacity:.7;padding:2px}
 .mol-tools i:hover{opacity:1}
 .mol-section{display:flex;align-items:center;justify-content:space-between;color:var(--mol-dim);font-size:12px;
-  font-weight:600;letter-spacing:.06em;padding:20px 12px 8px;text-transform:uppercase}
+  font-weight:700;padding:20px 12px 0;text-transform:uppercase;min-height:16px}
 .mol-addcat{font-size:12px;padding:4px 6px;min-width:22px;min-height:22px;color:var(--mol-dim)}
 .mol-navfoot{margin-top:auto;padding:16px 10px 2px;color:var(--mol-dim);font-size:11px;word-break:break-all;line-height:1.5}
 .mol-inline-input{width:100%;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
 .mol-main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
-.mol-head{padding:22px 30px 10px;display:flex;flex-direction:column;gap:16px}
-.mol-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mol-title{font-size:19px;font-weight:600;margin-right:auto}
-.mol-search{display:flex;align-items:center;gap:8px;border:1px solid #444;border-radius:12px;padding:9px 14px;
-  width:min(460px,40vw);background:var(--mol-input)}
+/* Header: 72 px high, 24 px sides, search 36 px high up to 384 px, 40 px close button */
+.mol-head{padding:0 24px 12px;display:flex;flex-direction:column;gap:12px}
+.mol-head>.mol-row:first-child{height:72px;flex-wrap:nowrap;margin-bottom:-12px;gap:8px}
+.mol-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mol-title{font-size:16px;font-weight:500;margin-right:auto;white-space:nowrap}
+.mol-search{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:0 12px;
+  height:36px;box-sizing:border-box;width:100%;max-width:384px;background:transparent;margin-left:auto}
+.mol-head>.mol-row:first-child>.mol-iconbtn{width:40px;height:40px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .mol-search input{flex:1;background:none;border:0;outline:0;color:var(--mol-fg);font:inherit}
 .mol-iconbtn{background:none;border:0;color:var(--mol-fg);cursor:pointer;font-size:16px;padding:8px;border-radius:8px}
 .mol-iconbtn:hover{background:var(--mol-hover)}
-.mol-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px;background:var(--mol-card);
-  border:1px solid transparent;cursor:pointer;color:var(--mol-fg);font:inherit;user-select:none}
+.mol-chip{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:8px;background:var(--mol-card);
+  border:1px solid transparent;cursor:pointer;color:var(--mol-fg);font:inherit;font-size:12px;user-select:none}
+.mol-chip i{font-size:12px}
 .mol-chip:hover{background:var(--mol-hover)}
 .mol-chip.active{background:#f2f2f2;color:#111}
 .mol-select{background:var(--mol-card);color:var(--mol-fg);border:1px solid var(--mol-border);border-radius:10px;
   padding:8px 12px;font:inherit;cursor:pointer;max-width:220px}
+/* Filter menus of the top bar, like Model Filter and the sort menu of Templates */
+.mol-filtersel{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 4px 0 10px;
+  border:1px solid rgba(255,255,255,.14);border-radius:8px;font-size:12px;color:var(--mol-fg)}
+.mol-filtersel i{font-size:12px}
+.mol-filtersel select{background:transparent;color:var(--mol-fg);border:0;outline:0;font:inherit;font-size:12px;cursor:pointer;max-width:200px;height:30px}
+.mol-filtersel select option{background:#262729}
 .mol-spacer{flex:1}
 .mol-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:10px;border:1px solid var(--mol-border);
   background:var(--mol-card);color:var(--mol-fg);font:inherit;cursor:pointer}
@@ -159,8 +172,8 @@ const CSS = `
   font-size:13px;color:#d6d6d6;cursor:pointer;white-space:nowrap}
 .mol-tag.active{background:var(--mol-accent);color:#1b1b1b}
 .mol-tag i{font-size:10px}
-.mol-grid-wrap{flex:1;overflow:auto;padding:8px 30px 30px}
-.mol-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:26px 26px}
+.mol-grid-wrap{flex:1;overflow:auto;padding:12px 24px 30px}
+.mol-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:26px 24px}
 .mol-card{cursor:pointer;min-width:0}
 .mol-thumb{position:relative;aspect-ratio:1/1;border-radius:14px;overflow:hidden;background:var(--mol-card)}
 .mol-thumb img,.mol-thumb video{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s}
@@ -766,7 +779,7 @@ function renderMain() {
     syncVersionBanner();
     const isOutput = S.view === "output";
     const searchInput = h("input", {
-        type: "text", placeholder: isOutput ? "Search file names" : "Search titles, prompts, notes, tags",
+        type: "text", placeholder: "Search ...", title: isOutput ? "Search file names" : "Search titles, prompts, notes, tags and models",
         value: S.search,
     });
     const doSearch = debounce(async () => {
@@ -788,21 +801,23 @@ function renderMain() {
         chip("audio", "Audio", "volume-up")];
     if (!isOutput) {
         const families = allFamilies();
-        const modelSel = h("select", { class: "mol-select", onchange: (e) => { S.family = e.target.value; render(); } },
-            h("option", { value: "" }, "All models"),
-            ...families.map((m) => h("option", { value: m, selected: S.family === m }, m)));
-        const sortSel = h("select", { class: "mol-select", title: "Sort order",
+        const modelSel = h("label", { class: "mol-filtersel", title: "Show only creations made with this model" },
+            h("select", { onchange: (e) => { S.family = e.target.value; render(); } },
+                h("option", { value: "" }, "Model Filter"),
+                ...families.map((m) => h("option", { value: m, selected: S.family === m }, m))));
+        const sortSel = h("select", { title: "Sort order",
             onchange: (e) => { S.sort = e.target.value; savePref("sort", S.sort); render(); } },
             ...[["created-desc", "Newest created"], ["created-asc", "Oldest created"], ["added-desc", "Newest added"],
                 ["added-asc", "Oldest added"], ["title", "Title"]]
                 .map(([v, l]) => h("option", { value: v, selected: S.sort === v }, l)));
+        const sortBox = h("label", { class: "mol-filtersel", title: "Sort order" }, icon("sort-alt"), sortSel);
         const nSug = visibleSuggestions().length;
         const detectBtn = h("button", {
             class: "mol-chip" + (S.versionsOpen ? " active" : ""),
             title: "Show or hide the suggestions of creations to group as versions, and how alike they must be",
             onclick: () => { S.versionsOpen = !S.versionsOpen; savePref("versionsOpen", S.versionsOpen ? "1" : "0"); render(); },
         }, icon("clone"), "Detect versions", nSug ? h("span", { class: "mol-chipcount" }, String(nSug)) : null);
-        filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortSel);
+        filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortBox);
     } else {
         filters.push(h("button", {
             class: "mol-chip" + (S.newOnly ? " active" : ""), title: "Only files created since your previous visit of this view",
