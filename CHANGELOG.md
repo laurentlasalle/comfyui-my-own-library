@@ -2,6 +2,13 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.7.2 (2026-10-29)
+
+- Fixed: with many versions, the first ones could not be reached in the version strip.
+- The version shown stays visible in the strip when browsing with **↑** / **↓**.
+- The mouse wheel scrolls the version strip sideways.
+- A click on the preview leaves any text field, so the arrows browse again.
+
 ## 0.7.1 (2026-10-29)
 
 - Fixed: "null" appeared next to **New thumbnail** after **Reset thumbnail**.

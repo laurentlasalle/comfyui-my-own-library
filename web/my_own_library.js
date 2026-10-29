@@ -201,7 +201,11 @@ const CSS = `
 .mol-suggestion{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:12px 16px;margin:4px 0 22px;border:1px solid #7d6848;border-radius:12px;background:#221e18}
 .mol-sugthumbs{display:flex;padding-left:10px}
 .mol-sugthumbs img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:2px solid #221e18;margin-left:-10px;background:#2a2a2a}
-.mol-strip{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;padding:12px;background:linear-gradient(transparent,rgba(0,0,0,.8));overflow-x:auto}
+/* Centered while it fits; when it overflows it starts at the left so every version can be reached
+   (justify-content:center would push the first ones out of reach). */
+.mol-strip{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:flex-start;padding:12px;background:linear-gradient(transparent,rgba(0,0,0,.8));overflow-x:auto}
+.mol-strip>.mol-stripitem:first-child{margin-left:auto}
+.mol-strip>.mol-stripitem:last-child{margin-right:auto}
 .mol-stripitem{position:relative;width:64px;height:64px;padding:0;border:2px solid transparent;border-radius:9px;overflow:hidden;background:#222;cursor:pointer;flex:none}
 .mol-stripitem.active{border-color:var(--mol-accent)}
 .mol-stripitem.drop{border-color:#fff;transform:scale(1.08)}
@@ -694,6 +698,12 @@ function render() {
     if (wrap) wrap.scrollTop = scroll;
     if (S.detail) {
         root.querySelector(".mol-main").append(renderDetail());
+        // Keep the version shown visible in the strip.
+        const strip = root.querySelector(".mol-strip");
+        const act = strip?.querySelector(".mol-stripitem.active");
+        if (strip && act && strip.scrollWidth > strip.clientWidth) {
+            strip.scrollLeft = act.offsetLeft - strip.clientWidth / 2 + act.offsetWidth / 2;
+        }
         const video = root.querySelector(".mol-preview video");
         if (video && playback && video.getAttribute("src") === playback.src) {
             if (playback.paused) video.removeAttribute("autoplay");
@@ -1952,6 +1962,18 @@ function renderDetail() {
         list.length > 1 ? h("button", { class: "mol-navarrow", style: { right: "16px" }, title: "Next (→)", onclick: () => moveDetail(1) }, icon("chevron-right")) : null,
         strip);
     if (isItem && entry.kind === "video") preview.append(thumbButtons(entry, preview));
+    if (strip) {
+        // The mouse wheel scrolls the strip sideways.
+        strip.addEventListener("wheel", (e) => {
+            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { strip.scrollLeft += e.deltaY; e.preventDefault(); }
+        }, { passive: false });
+    }
+    // A click on the preview side leaves any text field, so the arrows browse again.
+    preview.addEventListener("mousedown", () => {
+        const a = document.activeElement;
+        if (a && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) a.blur();
+        if (!S.dialog.contains(document.activeElement) || document.activeElement === document.body) S.dialog.querySelector(".mol-root")?.focus({ preventScroll: true });
+    });
 
     const info = h("aside", { class: "mol-info" });
     const headTitle = h("div", { style: { fontWeight: 600, flex: 1 } }, `${index + 1} / ${list.length}`,
