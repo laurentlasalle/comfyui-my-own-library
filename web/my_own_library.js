@@ -208,6 +208,10 @@ const CSS = `
 .mol-dupgroup{margin:0 0 26px}
 .mol-dupgroup>.mol-row{margin-bottom:10px}
 .mol-dupcopy .mol-thumb{opacity:.6}
+.mol-jobbar{gap:12px}
+.mol-jobtext{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.mol-jobtrack{flex:1;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden;min-width:80px}
+.mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -1074,6 +1078,7 @@ function renderItemGrid() {
 }
 
 function renderLibraryBar() {
+    if (S.job) return renderJobProgress();
     if (!S.libSelected.size) return null;
     const works = groupWorks(S.items).filter((w) => S.libSelected.has(w.key));
     const ids = works.flatMap((w) => w.members.map((m) => m.id));
@@ -1137,15 +1142,16 @@ async function removeWorks(works) {
     const what = works.length === 1 ? `"${works[0].cover.title}"${versions}` : `${works.length} creations${versions}`;
     if (!confirm(`Remove ${what} from your library, ${fmtSize(size)}?\n\n`
         + "The library copies are deleted permanently. Files still in the output folder are not touched.")) return;
-    try {
-        const res = await call("/items/remove", { ids: members.map((m) => m.id) });
-        applySnapshot(res);
-        await loadSuggestions();
-        S.libSelected.clear();
-        toast("Removed from library", `${res.removed} file(s), ${fmtSize(res.freed)} freed`);
-    } catch (e) {
-        toast("Could not remove", e.message, "error");
-    }
+    const job = await runJob("Removing from library", members.map((m) => m.id), 20,
+        (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
+    if (!job) return;
+    const last = job.results[job.results.length - 1];
+    if (last) applySnapshot(last);
+    await loadSuggestions();
+    if (!job.cancelled) S.libSelected.clear();
+    const removed = job.results.reduce((a, r) => a + (r.removed || 0), 0);
+    const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
+    toast(job.cancelled ? "Removal stopped" : "Removed from library", `${removed} file(s), ${fmtSize(freed)} freed`);
     render();
 }
 
@@ -1337,6 +1343,67 @@ async function selectWholeFolder(which) {
     render();
 }
 
+// ------------------------------------------------------------------- jobs
+// Long operations (adding, moving, deleting many files) are sent in small
+// batches: the window shows the progress, other actions wait, and Cancel stops
+// after the current batch. The server prints each file in the terminal.
+
+async function runJob(label, list, size, send) {
+    if (S.job) { toast("Please wait", `${S.job.label} is still running`, "warn"); return null; }
+    const job = S.job = { id: Math.random().toString(36).slice(2), label, total: list.length, done: 0, cancel: false, next: list[0] };
+    render();  // swaps the action bar for the progress bar
+    const results = [];
+    let processed = 0;
+    try {
+        for (let start = 0; start < list.length; start += size) {
+            const chunk = list.slice(start, start + size);
+            job.next = chunk[0];
+            updateJobProgress();
+            const last = start + size >= list.length;
+            results.push(await send(chunk, { id: job.id, start, total: list.length, last }));
+            processed = start + chunk.length;
+            job.done = processed;
+            updateJobProgress();
+            if (job.cancel && !last) {
+                try { await call("/job/cancel", { job: { id: job.id } }); } catch { /* only the terminal summary is lost */ }
+                break;
+            }
+        }
+    } catch (e) {
+        toast(label + " stopped", e.message, "error");
+        try { await call("/job/cancel", { job: { id: job.id } }); } catch { /* ignore */ }
+    } finally {
+        S.job = null;
+    }
+    return { results, processed, cancelled: processed < list.length, list };
+}
+
+// The progress bar replaces the action bar while a job runs; it is updated in
+// place so the grid isn't rebuilt (and scrolled) for every batch.
+function renderJobProgress() {
+    const job = S.job;
+    if (!job) return null;
+    job.text = h("span", { class: "mol-jobtext" });
+    job.bar = h("span", { class: "mol-jobfill" });
+    job.btn = h("button", { class: "mol-btn", onclick: () => { job.cancel = true; updateJobProgress(); } }, "Cancel");
+    job.el = h("div", { class: "mol-actionbar mol-jobbar" },
+        h("i", { class: "pi pi-spin pi-spinner" }), job.text,
+        h("span", { class: "mol-jobtrack" }, job.bar), job.btn);
+    updateJobProgress();
+    return job.el;
+}
+
+function updateJobProgress() {
+    const job = S.job;
+    if (!job?.text) return;
+    const name = typeof job.next === "string" ? "" : (job.next?.rel || job.next?.name || "").split("/").pop();
+    job.text.textContent = job.cancel
+        ? `${job.label}: stopping after the current batch (${job.done} / ${job.total})`
+        : `${job.label}: ${job.done} / ${job.total}` + (name && job.done < job.total ? ` · ${name}` : "");
+    job.bar.style.width = (job.total ? (100 * job.done) / job.total : 0) + "%";
+    job.btn.disabled = job.cancel;
+}
+
 async function deleteFromOutput(files) {
     if (!files.length) return;
     const total = files.reduce((a, f) => a + (f.size || 0), 0);
@@ -1344,18 +1411,30 @@ async function deleteFromOutput(files) {
         ? `Permanently delete "${files[0].name}" (${fmtSize(total)}) from the output folder?`
         : `Permanently delete ${files.length} files (${fmtSize(total)}) from the output folder?`;
     if (!confirm(msg + "\n\nYour library keeps its copies. This cannot be undone.")) return false;
+    const job = await runJob("Deleting from output", files.map((f) => ({ root: f.root, rel: f.rel })), 20,
+        (chunk, info) => call("/output/delete", { files: chunk, job: info }));
+    if (!job) return false;
+    const deleted = job.results.flatMap((r) => r.deleted || []);
+    const errors = job.results.flatMap((r) => r.errors || []);
+    const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
+    if (errors.length) toast("Some files were not deleted", errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+    toast(job.cancelled ? "Deletion stopped" : "Deleted from output", `${deleted.length} file(s), ${fmtSize(freed)} freed`
+        + (job.cancelled ? `, ${files.length - job.processed} left` : ""));
+    for (const f of job.list.slice(0, job.processed)) S.selected.delete(f.root + "|" + f.rel);
+    await refreshAfterJob();
+    return true;
+}
+
+// Show what is left to do in the output folder, with the same filters.
+async function refreshAfterJob() {
     try {
-        const res = await call("/output/delete", { files: files.map((f) => ({ root: f.root, rel: f.rel })) });
-        if (res.errors.length) toast("Some files were not deleted", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
-        if (res.deleted.length) toast("Deleted from output", `${res.deleted.length} file(s), ${fmtSize(res.freed)} freed`);
-        for (const f of files) S.selected.delete(f.root + "|" + f.rel);
+        await loadLibrary();
         await loadOutput(true);
-        render();
-        return true;
     } catch (e) {
-        toast("Could not delete", e.message, "error");
-        return false;
+        toast("Could not refresh", e.message, "error");
     }
+    render();
+    refreshBadge();
 }
 
 function removeAfterBox(get, set) {
@@ -1367,6 +1446,7 @@ function removeAfterBox(get, set) {
 }
 
 function renderOutputBar() {
+    if (S.job) return renderJobProgress();
     const shownKeys = new Set(S.output.files.map((f) => f.root + "|" + f.rel));
     const hidden = [...S.selected].filter((k) => !shownKeys.has(k)).length;
     const sel = selectedFiles();
@@ -1400,11 +1480,18 @@ function renderOutputBar() {
 
 async function addFiles(files, category = "", tags = [], removeAfter = false, allowDuplicates = false) {
     if (!files.length) return;
-    toast("Adding to library", `${files.length} file(s), copying`, "info");
+    if (!S.dialog?.open) toast("Adding to library", `${files.length} file(s), copying`, "info");
+    const label = removeAfter ? "Moving to library" : "Adding to library";
+    const job = await runJob(label, files, 10, (chunk, info) =>
+        call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates, job: info }));
+    if (!job) return;
+    const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], freed: 0 };
+    for (const r of job.results) {
+        for (const k of ["added", "existing", "duplicates", "errors", "removed"]) res[k] = res[k].concat(r[k] || []);
+        res.freed += r.freed || 0;
+    }
     try {
-        const res = await call("/add", { files, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates });
-        S.items = res.added.concat(S.items);
-        S.selected.clear();
+        for (const f of files.slice(0, job.processed)) S.selected.delete(f.root + "|" + f.rel);
         const dups = res.duplicates || [];
         // Files identical to a creation already in the library are linked to it
         // instead of copied again; offer to add them anyway (unless just deleted).
@@ -1412,12 +1499,11 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
         const kept = dups.filter((d) => !gone.has(d.rel));
         S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, list: kept } : null;
         if (res.errors.length) toast("Some files were not added", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
-        toast("Added to library", `${res.added.length} added${res.existing.length ? `, ${res.existing.length} already there` : ""}`
+        toast(job.cancelled ? `${label} stopped` : "Added to library", `${res.added.length} added${res.existing.length ? `, ${res.existing.length} already there` : ""}`
             + (dups.length ? `, ${dups.length} skipped as identical to a creation already in the library` : "")
-            + (res.removed?.length ? `, ${res.removed.length} removed from output (${fmtSize(res.freed)})` : ""));
-        await loadLibrary();
-        if (S.dialog?.open) { await loadOutput(true); render(); }
-        refreshBadge();
+            + (res.removed?.length ? `, ${res.removed.length} removed from output (${fmtSize(res.freed)})` : "")
+            + (job.cancelled ? `, ${files.length - job.processed} left` : ""));
+        await refreshAfterJob();
         return res;
     } catch (e) {
         toast("Could not add", e.message, "error");

@@ -26,6 +26,77 @@ _library = None
 _library_lock = threading.Lock()
 
 
+# ------------------------------------------------------------------ progress
+# The window sends long operations in small batches; each batch says where it
+# stands in the whole job, so the terminal shows "37/240" and a summary at the end.
+_jobs = {}
+
+
+def _fmt_size(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024.0
+
+
+def _say(text):
+    print("[My Own Library] " + text, flush=True)
+
+
+class Job:
+    def __init__(self, body, verb):
+        info = body.get("job") or {}
+        self.id = str(info.get("id") or "")
+        self.start = int(info.get("start") or 0)
+        self.total = int(info.get("total") or 0)
+        self.last = bool(info.get("last", True))
+        self.verb = verb
+        state = _jobs.get(self.id) if self.id else None
+        if state is None:
+            import time
+            state = {"t0": time.time(), "counts": {}, "freed": 0, "errors": 0, "verb": verb}
+            if self.id:
+                _jobs[self.id] = state
+        self.state = state
+        self.n = self.start
+
+    def step(self, name, what, extra=""):
+        """Log one file: what = added, skipped, already, removed, deleted, error."""
+        self.n += 1
+        self.state["counts"][what] = self.state["counts"].get(what, 0) + 1
+        label = {"added": "Added", "skipped": "Skipped (identical to a library creation)",
+                 "already": "Already in library", "removed": "Removed from output",
+                 "deleted": "Deleted from output", "removed_lib": "Removed from library",
+                 "error": "Error"}[what]
+        total = self.total or "?"
+        _say("%s %s/%s: %s%s" % (label, self.n, total, name, (" (%s)" % extra) if extra else ""))
+        if what == "error":
+            self.state["errors"] += 1
+
+    def step_quiet(self, what):
+        self.state["counts"][what] = self.state["counts"].get(what, 0) + 1
+
+    def freed(self, n):
+        self.state["freed"] += n
+
+    def finish(self, cancelled=False):
+        if not self.last and not cancelled:
+            return
+        import time
+        _jobs.pop(self.id, None)
+        c = self.state["counts"]
+        parts = []
+        for key, label in (("added", "added"), ("skipped", "skipped as duplicates"), ("already", "already in library"),
+                           ("removed", "removed from output"), ("deleted", "deleted from output"),
+                           ("removed_lib", "removed from library"), ("error", "errors")):
+            if c.get(key):
+                parts.append("%d %s" % (c[key], label))
+        if self.state["freed"]:
+            parts.append("%s freed" % _fmt_size(self.state["freed"]))
+        _say("%s %s in %.1f s: %s" % (self.state.get("verb", self.verb), "cancelled" if cancelled else "done",
+                                      time.time() - self.state["t0"], ", ".join(parts) or "nothing to do"))
+
+
 def config_path():
     return os.path.join(folder_paths.get_user_directory(), "my_own_library.config.json")
 
@@ -193,7 +264,11 @@ def setup_routes():
         lib = library()
         added, existing, duplicates, errors = [], [], [], []
         removed, freed = [], 0
+        job = Job(body, "Moving to library" if body.get("remove_after") else "Adding to library")
+        import time
         for entry in body.get("files", []):
+            name = entry.get("rel", "")
+            t0 = time.time()
             try:
                 item, created = await run(lib.add, entry.get("root", "output"), entry["rel"],
                                           body.get("category", ""), body.get("tags", []),
@@ -201,17 +276,27 @@ def setup_routes():
                 if created == "duplicate":
                     duplicates.append({"root": entry.get("root", "output"), "rel": entry["rel"],
                                        "id": item["id"], "title": item.get("title")})
+                    job.step(name, "skipped", 'same as "%s"' % item.get("title"))
                 else:
                     (added if created else existing).append(item)
+                    job.step(name, "added" if created else "already",
+                             "%s, %.1f s" % (_fmt_size(item.get("size") or 0), time.time() - t0) if created else "")
             except Exception as e:
                 errors.append({"rel": entry.get("rel"), "error": str(e)})
+                job.step(name, "error", str(e))
                 continue
             if body.get("remove_after") and entry.get("root", "output") == "output":
                 try:
-                    freed += await run(lib.delete_from_output, "output", entry["rel"])
+                    n = await run(lib.delete_from_output, "output", entry["rel"])
+                    freed += n
+                    job.freed(n)
+                    job.step_quiet("removed")
+                    _say("  removed from output: %s (%s)" % (name, _fmt_size(n)))
                     removed.append(entry["rel"])
                 except Exception as e:
                     errors.append({"rel": entry.get("rel"), "error": "Added, but not removed from output: %s" % e})
+                    _say("  not removed from output: %s (%s)" % (name, e))
+        job.finish(bool(body.get("cancelled")))
         return web.json_response({"added": added, "existing": existing, "duplicates": duplicates, "errors": errors,
                                   "removed": removed, "freed": freed})
 
@@ -228,17 +313,31 @@ def setup_routes():
                 errors.append(str(e))
         return web.json_response({"kept": kept, "errors": errors, **(await run(lib.snapshot))})
 
+    @routes.post(PREFIX + "/job/cancel")
+    async def post_job_cancel(request):
+        """The window stopped a job between two batches: print its summary."""
+        body = await request.json()
+        if str((body.get("job") or {}).get("id") or "") in _jobs:
+            Job(body, "Job").finish(cancelled=True)
+        return web.json_response({"ok": True})
+
     @routes.post(PREFIX + "/output/delete")
     async def post_output_delete(request):
         body = await request.json()
         lib = library()
         deleted, errors, freed = [], [], 0
+        job = Job(body, "Deleting from output")
         for entry in body.get("files", []):
             try:
-                freed += await run(lib.delete_from_output, entry.get("root", "output"), entry["rel"])
+                n = await run(lib.delete_from_output, entry.get("root", "output"), entry["rel"])
+                freed += n
+                job.freed(n)
+                job.step(entry["rel"], "deleted", _fmt_size(n))
                 deleted.append(entry["rel"])
             except Exception as e:
                 errors.append({"rel": entry.get("rel"), "error": str(e)})
+                job.step(entry.get("rel", ""), "error", str(e))
+        job.finish(bool(body.get("cancelled")))
         return web.json_response({"deleted": deleted, "errors": errors, "freed": freed})
 
     @routes.get(PREFIX + "/versions/suggestions")
@@ -300,12 +399,19 @@ def setup_routes():
         body = await request.json()
         lib = library()
         removed, freed = 0, 0
+        job = Job(body, "Removing from library")
         for item_id in body.get("ids", []):
+            item = lib.get(item_id)
+            name = (item or {}).get("title") or item_id
             try:
-                freed += await run(lib.remove, item_id)
+                n = await run(lib.remove, item_id)
+                freed += n
                 removed += 1
+                job.freed(n)
+                job.step(name, "removed_lib", _fmt_size(n))
             except KeyError:
                 pass
+        job.finish(bool(body.get("cancelled")))
         return web.json_response({"removed": removed, "freed": freed, **(await run(lib.snapshot))})
 
     @routes.post(PREFIX + "/items/update")
