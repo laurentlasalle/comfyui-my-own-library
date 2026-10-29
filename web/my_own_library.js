@@ -57,6 +57,55 @@ function h(tag, attrs = {}, ...children) {
 
 const icon = (name) => h("i", { class: `pi pi-${name}` });
 
+// ---------------------------------------------------------------- settings
+// Shown in ComfyUI's own Settings panel (gear), section "My Own Library", and
+// saved in the ComfyUI user profile.
+const SET = {
+    faces: "MyOwnLibrary.Thumbnails.CenterOnFaces",
+    hover: "MyOwnLibrary.Grid.PlayVideosOnHover",
+    badge: "MyOwnLibrary.Sidebar.NewFilesBadge",
+    removeAfter: "MyOwnLibrary.Output.RemoveAfterAdding",
+    similarity: "MyOwnLibrary.Versions.Similarity",
+};
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal" };
+
+function getSetting(id) {
+    try {
+        const store = app.extensionManager?.setting;
+        const v = store?.get ? store.get(id) : app.ui?.settings?.getSettingValue?.(id);
+        return v === undefined || v === null ? SETTING_DEFAULTS[id] : v;
+    } catch {
+        return SETTING_DEFAULTS[id];
+    }
+}
+
+async function setSetting(id, value) {
+    try {
+        const store = app.extensionManager?.setting;
+        if (store?.set) await store.set(id, value);
+        else await app.ui?.settings?.setSettingValueAsync?.(id, value);
+    } catch { /* the panel keeps the previous value */ }
+}
+
+const rerender = () => { if (S.dialog?.open) render(); };
+
+const SETTINGS = [
+    { id: SET.faces, category: ["My Own Library", "Thumbnails", "Center on faces"], name: "Center thumbnails on faces",
+        tooltip: "When a picture has a single face, the square crop of the grid is centered on it. Portrait pictures are framed on their upper third.",
+        type: "boolean", defaultValue: true, onChange: rerender },
+    { id: SET.hover, category: ["My Own Library", "Grid", "Play videos on hover"], name: "Play videos on hover",
+        tooltip: "Play a muted preview when the mouse is over a video card.", type: "boolean", defaultValue: true },
+    { id: SET.badge, category: ["My Own Library", "Sidebar", "New files badge"], name: "New files badge",
+        tooltip: "Show on the library icon how many new files arrived in the output folder since your last visit.",
+        type: "boolean", defaultValue: true, onChange: () => refreshBadge() },
+    { id: SET.removeAfter, category: ["My Own Library", "Output", "Remove after adding"], name: "Remove from output after adding (default)",
+        tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
+    { id: SET.similarity, category: ["My Own Library", "Versions", "Similarity"], name: "Similarity of version suggestions",
+        tooltip: "How alike creations must look (or sound) to be suggested as versions. Also changed from the Detect versions banner.",
+        type: "combo", options: ["Strict", "Normal", "Loose"], defaultValue: "Normal",
+        onChange: async (v) => { S.similarity = String(v || "Normal").toLowerCase(); S.suggestionIndex = 0; if (S.dialog?.open) { await loadSuggestions(); render(); } } },
+];
+
 // Small per-browser preferences (sort order). Storage can be unavailable: ignore errors.
 function loadPref(key, fallback) {
     try { return localStorage.getItem("my_own_library." + key) || fallback; } catch { return fallback; }
@@ -145,7 +194,10 @@ const CSS = `
 .mol-search{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:0 12px;
   height:36px;box-sizing:border-box;width:100%;max-width:384px;background:transparent;margin-left:auto}
 .mol-head>.mol-row:first-child>.mol-iconbtn{width:40px;height:40px;padding:0;display:inline-flex;align-items:center;justify-content:center}
-.mol-search input{flex:1;background:none;border:0;outline:0;color:var(--mol-fg);font:inherit}
+.mol-search input{flex:1;background:none;border:0;outline:0;color:var(--mol-fg);font:inherit;min-width:0}
+.mol-searchclear{cursor:pointer;color:var(--mol-dim);font-size:16px;flex:none}
+.mol-searchclear.mol-lucide{width:16px;height:16px;display:inline-block}
+.mol-searchclear:hover{color:var(--mol-fg)}
 .mol-iconbtn{background:none;border:0;color:var(--mol-fg);cursor:pointer;font-size:16px;padding:8px;border-radius:8px}
 .mol-iconbtn:hover{background:var(--mol-hover)}
 .mol-chip{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:8px;background:var(--mol-card);
@@ -364,7 +416,7 @@ const S = {
     libSelected: new Set(), // works selected in the library grid
     bulkTags: [],
     suggestions: [],        // creations from one workflow, not grouped yet
-    similarity: loadPref("similarity", "normal"),  // strict | normal | loose
+    similarity: "normal",   // strict | normal | loose (from the settings)
     versionsOpen: loadPref("versionsOpen", "1") === "1",  // Detect versions banner shown
     suggestionIndex: 0,
     review: null,           // {sug, checked: Set, zoom: id|null}: suggestion being reviewed
@@ -435,7 +487,7 @@ const TAB_ID = "my-own-library";
 // ComfyUI's sidebar store is reactive, so changing it updates the icon.
 function setBadge(n) {
     S.badge = n;
-    const text = n > 0 ? (n > 99 ? "99+" : String(n)) : "";
+    const text = n > 0 && getSetting(SET.badge) ? (n > 99 ? "99+" : String(n)) : "";
     const manager = app.extensionManager;
     const tabs = manager?.sidebarTab?.sidebarTabs ?? manager?.getSidebarTabs?.();
     const tab = Array.isArray(tabs) ? tabs.find((t) => t.id === TAB_ID) : null;
@@ -620,18 +672,32 @@ const fileSource = (f) => url("/source", { root: f.root, rel: f.rel });
 const thumbCache = new Map();
 let thumbsUsed = new Set();  // reset at each render: one element can only be in one place
 
-function thumbEl(src, kind, videoSrc) {
+// Position of the square crop so the point of interest (a face) sits in the
+// middle of it, as far as the picture allows.
+function focusPosition(it) {
+    const f = it?.focus;
+    if (!f || !getSetting(SET.faces) || !it.width || !it.height) return "";
+    const pos = (p, visible) => (visible >= 1 ? 50 : Math.min(100, Math.max(0, ((p - visible / 2) / (1 - visible)) * 100)));
+    const ratio = it.width / it.height;
+    const x = ratio > 1 ? pos(f.x, 1 / ratio) : 50;
+    const y = ratio < 1 ? pos(f.y, ratio) : 50;
+    return `${x.toFixed(1)}% ${y.toFixed(1)}%`;
+}
+
+function thumbEl(src, kind, videoSrc, it = null) {
     const wrap = h("div", { style: { width: "100%", height: "100%" } });
     let img = thumbCache.get(src);
     if (img && !thumbsUsed.has(src)) {
         thumbsUsed.add(src);
         thumbCache.delete(src);
         thumbCache.set(src, img);  // most recently used last
+        img.style.objectPosition = focusPosition(it);
         wrap.append(img);  // moved from the previous grid, still loaded
         return wrap;
     }
     thumbsUsed.add(src);
     img = h("img", { src, loading: "lazy", draggable: "false" });
+    img.style.objectPosition = focusPosition(it);
     thumbCache.set(src, img);
     if (thumbCache.size > 3000) thumbCache.delete(thumbCache.keys().next().value);
     img.onerror = () => {
@@ -665,6 +731,7 @@ function attachHoverPlay(thumb, kind, videoSrc) {
     if (kind !== "video") return;
     let v = null;
     thumb.addEventListener("mouseenter", () => {
+        if (!getSetting(SET.hover)) return;
         v = h("video", { src: videoSrc, muted: true, autoplay: true, loop: true, playsinline: true,
             style: { position: "absolute", inset: "0", pointerEvents: "none", zIndex: "1" } });
         v.muted = true;
@@ -968,6 +1035,21 @@ function syncVersionBanner() {
     try { localStorage.setItem("my_own_library.seenSuggestions", JSON.stringify([...seen, ...fresh].slice(-500))); } catch { /* per-browser only */ }
 }
 
+// The clear icon of Templates' search field is Lucide's "delete", which ComfyUI
+// compiles into its stylesheet only because it uses it. Use it when present,
+// PrimeIcons' equivalent otherwise.
+let clearIcon = null;
+function clearIconClass() {
+    if (clearIcon) return clearIcon;
+    const probe = h("i", { class: "icon-[lucide--delete]", style: { position: "absolute", visibility: "hidden" } });
+    document.body.append(probe);
+    const cs = getComputedStyle(probe);
+    const has = [cs.maskImage, cs.webkitMaskImage, cs.backgroundImage].some((v) => v && v !== "none");
+    probe.remove();
+    clearIcon = has ? "icon-[lucide--delete] mol-lucide" : "pi pi-delete-left";
+    return clearIcon;
+}
+
 function renderMain() {
     syncVersionBanner();
     const isOutput = S.view === "output";
@@ -984,6 +1066,19 @@ function renderMain() {
         again.setSelectionRange(again.value.length, again.value.length);
     }, 250);
     searchInput.addEventListener("input", doSearch);
+    const clearSearch = async () => {
+        searchInput.value = "";
+        S.search = "";
+        if (isOutput) await loadOutput(true);
+        render();
+        S.dialog.querySelector(".mol-search input")?.focus();
+    };
+    // Esc in a filled search field clears it; on an empty one it closes as usual.
+    searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && searchInput.value) { e.preventDefault(); e.stopPropagation(); clearSearch(); }
+    });
+    const clearBtn = S.search ? h("i", { class: clearIconClass() + " mol-searchclear", title: "Clear the search (Esc)", role: "button",
+        onclick: clearSearch }) : null;
 
     const chip = (id, label, iconName) => h("button", {
         class: "mol-chip" + (S.kind === id ? " active" : ""),
@@ -1010,7 +1105,13 @@ function renderMain() {
         const detectBtn = h("button", {
             class: "mol-chip" + (S.versionsOpen ? " active" : ""),
             title: "Show or hide the suggestions of creations to group as versions, and how alike they must be",
-            onclick: () => { S.versionsOpen = !S.versionsOpen; savePref("versionsOpen", S.versionsOpen ? "1" : "0"); render(); },
+            onclick: () => {
+                S.versionsOpen = !S.versionsOpen;
+                savePref("versionsOpen", S.versionsOpen ? "1" : "0");
+                render();
+                // Opening it from further down the grid: go up so the banner is seen.
+                if (S.versionsOpen) S.dialog.querySelector(".mol-main > .mol-grid-wrap")?.scrollTo({ top: 0, behavior: "smooth" });
+            },
         }, icon("clone"), "Detect versions", nSug ? h("span", { class: "mol-chipcount" }, String(nSug)) : null);
         filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortBox);
     } else {
@@ -1036,7 +1137,7 @@ function renderMain() {
     const head = h("div", { class: "mol-head" },
         h("div", { class: "mol-row" },
             h("div", { class: "mol-title" }, viewTitle()),
-            h("div", { class: "mol-search" }, icon("search"), searchInput),
+            h("div", { class: "mol-search" }, icon("search"), searchInput, clearBtn),
             maximizeButton(),
             h("button", { class: "mol-iconbtn", title: "Close", onclick: close }, icon("times"))),
         isDup ? null : h("div", { class: "mol-row" }, ...filters),
@@ -1067,10 +1168,18 @@ function visibleSuggestions() {
         });
 }
 
+// Why creations are suggested together (from the server).
+const REASON = {
+    workflow: "come from the same workflow",
+    source: "were made from the same source file",
+    lookalike: "look almost identical",
+};
+const REASON_SHORT = { workflow: "from the same workflow", source: "from the same source file", lookalike: "that look almost identical" };
+
 const SIMILARITY = [
     ["strict", "Strict", "Only near-identical variations"],
     ["normal", "Normal", "Clear variations of the same image, video or sound"],
-    ["loose", "Loose", "Looser resemblance, more suggestions"],
+    ["loose", "Loose", "Looser resemblance, plus near-identical ones from other workflows"],
 ];
 
 function similaritySelect() {
@@ -1079,7 +1188,7 @@ function similaritySelect() {
         options: SIMILARITY.map(([v, label, tip]) => ({ value: v, label, hint: tip })),
         onChange: async (v) => {
             S.similarity = v;
-            savePref("similarity", S.similarity);
+            setSetting(SET.similarity, v.charAt(0).toUpperCase() + v.slice(1));
             S.suggestionIndex = 0;
             await loadSuggestions();
             render();
@@ -1107,7 +1216,7 @@ function renderSuggestion() {
     return h("div", { class: "mol-suggestion" },
         h("div", { class: "mol-sugthumbs" }, ...items.slice(0, 5).map((it) => h("img", { src: itemThumb(it), alt: "" }))),
         h("div", { class: "mol-sugtext" },
-            h("b", {}, `${items.length} similar creations come from the same workflow.`),
+            h("b", {}, `${items.length} similar creations ${REASON[sug.reason] || REASON.workflow}.`),
             h("div", { class: "mol-hint" }, "Group them as versions of one work, in order of creation?"),
             pending ? h("div", { class: "mol-hint" }, pending) : null),
         h("span", { class: "mol-spacer" }),
@@ -1179,7 +1288,7 @@ function renderReview() {
             }
         });
         const thumb = h("div", { class: "mol-thumb", title: "Click to see it large" },
-            thumbEl(itemThumb(it), it.kind, itemFile(it)),
+            thumbEl(itemThumb(it), it.kind, itemFile(it), it),
             kindBadge(it.kind),
             check,
             familyStack(familiesOf(it)));
@@ -1199,7 +1308,7 @@ function renderReview() {
             h("div", { class: "mol-row" },
                 h("button", { class: "mol-iconbtn", title: "Back (Esc)", onclick: close }, icon("arrow-left")),
                 h("div", { class: "mol-title" }, (list.length > 1 && pos >= 0 ? `Suggestion ${pos + 1} of ${list.length} · ` : "")
-                    + `${items.length} similar creations from the same workflow`),
+                    + `${items.length} similar creations ${REASON_SHORT[R.sug.reason] || REASON_SHORT.workflow}`),
                 h("span", { class: "mol-hint", style: { margin: 0 } }, "Untick the ones that are not versions of this work."))),
         h("div", { class: "mol-grid-wrap" }, h("div", { class: "mol-grid mol-reviewgrid" }, ...cards)),
         h("div", { class: "mol-actionbar" },
@@ -1282,7 +1391,7 @@ function renderDuplicates() {
         for (const it of [kept, ...group.filter((x) => x !== kept)]) {
             const pos = it.work_id ? membersOf(it).indexOf(it) + 1 : 0;
             const thumb = h("div", { class: "mol-thumb" },
-                thumbEl(itemThumb(it), it.kind, itemFile(it)),
+                thumbEl(itemThumb(it), it.kind, itemFile(it), it),
                 kindBadge(it.kind, "mol-badge lib"),
                 it === kept ? h("span", { class: "mol-topright" }, h("span", { class: "mol-ver" }, "Kept")) : null);
             attachHoverPlay(thumb, it.kind, itemFile(it));
@@ -1326,7 +1435,7 @@ function renderItemGrid() {
             onclick: (e) => { e.stopPropagation(); on ? S.libSelected.delete(w.key) : S.libSelected.add(w.key); render(); },
         }, on ? icon("check") : null);
         const thumb = h("div", { class: "mol-thumb" + (n > 1 ? " stack" : "") },
-            thumbEl(itemThumb(it), it.kind, itemFile(it)),
+            thumbEl(itemThumb(it), it.kind, itemFile(it), it),
             kindBadge(it.kind, "mol-badge lib"),
             check,
             h("span", { class: "mol-topright" },
@@ -2331,6 +2440,8 @@ async function open(view) {
     applyMaximized();
     if (view) S.view = view;
     S.detail = null;
+    S.similarity = String(getSetting(SET.similarity) || "Normal").toLowerCase();
+    if (!S.opened) { S.removeAfter = !!getSetting(SET.removeAfter); S.opened = true; }
     S.dialog.showModal();
     S.dialog.querySelector(".mol-root").replaceChildren(h("div", { class: "mol-empty", style: { flex: 1 } }, "Loading library"));
     if (S.view === "output") { S.selected.clear(); await markOutputSeen(); }
@@ -2391,6 +2502,7 @@ function renderSidebar(el) {
 
 app.registerExtension({
     name: "MyOwnLibrary",
+    settings: SETTINGS,
     commands: [
         { id: "MyOwnLibrary.Open", label: "Open My Own Library", icon: "pi pi-bookmark", function: () => open() },
     ],

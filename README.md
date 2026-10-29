@@ -7,7 +7,7 @@ A personal library for your ComfyUI creations, in a window modeled on ComfyUI's 
 - **Output view**: lists every image, video and audio file in your `output` folder, newest first, with a badge on the ones already in your library and a **Hide added** toggle.
 - **Library**: the creations you keep are **copied** into a separate library folder. You can then clean up `output` freely; your library keeps its own copies.
 - **Clean up output**: files already copied to the library can be deleted from `output`, one at a time or in bulk, or right when you add them (**Remove from output after adding**). Deletion is permanent and only happens after checking that the library copy is complete.
-- **Versions**: iterations of one work are grouped on a single card (**v4** badge), numbered in order of creation (or in the order you choose), with a strip to switch between them and a **Changes since** summary (seed, prompt changes shown in the text like tracked changes, models and LoRAs). The library suggests grouping creations that come from the same workflow **and** look (or sound) alike; you can also group, separate and choose the cover by hand.
+- **Versions**: iterations of one work are grouped on a single card (**v4** badge), numbered in order of creation (or in the order you choose), with a strip to switch between them and a **Changes since** summary (seed, prompt changes shown in the text like tracked changes, models and LoRAs). The library suggests grouping creations that look (or sound) alike **and** come from the same workflow or the same source file (image-to-image); at the Loose level, near-identical creations are suggested whatever their origin; you can also group, separate and choose the cover by hand.
 - **Duplicates**: a file identical to a creation already in the library (same file, or same pixels, frames or sound with different metadata, as when a workflow runs again with the same seed) is not copied twice. It is linked to that creation instead, so it counts as added and can be deleted from `output`. Identical creations already in the library are listed under **Duplicates**, where **Keep one** merges them.
 - **Organize**: one category per creation (left column), any number of tags, a title, notes and a favorite star. Tags are suggested as you type, from the tags you already use.
 - **Model families**: each thumbnail shows the families of the models that produced it, stacked in order of execution (for example Qwen Image 2.1 then SeedVR2), detected from the model file names and node types. Only models that actually contributed count: bypassed or muted nodes, and branches that don't lead to the node that saved the file, are ignored. You can correct the list per creation, and filter the library by family with **Model Filter** (several models can be ticked).
@@ -44,6 +44,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Tags | Type a few letters: matching tags appear, most used first. **↑** / **↓** to choose, **Enter** or **Tab** to take one, **Esc** to close the list. **Enter** on text that matches nothing creates a new tag. |
 | Correct the model families | In a creation's detail panel, type in **Model**; several families are separated with commas, in order of execution. Leave it empty to use the detected list. |
 | Sort new generations | When the sidebar icon shows a number, click it: the Output view opens on the new files (**New since last visit**). Toggle that filter off to see everything. |
+| Search | Type in **Search ...**; the icon at the right of the field, or **Esc**, clears it (a second **Esc** closes the window). |
 | Sort | The menu with the ⇅ icon, next to **Model Filter**: newest or oldest created (default: newest created), newest or oldest added, largest or smallest first (a work counts the size of all its versions; hover a card to see it), or title. Your choice is remembered. |
 | Browse | **←** / **→** move between creations, **Esc** goes back to the grid, then closes the window. |
 | Suggestions and filters | The version suggestion follows the current view and filters: with **FLUX.2** selected, only FLUX.2 creations of a workflow are proposed, and **Not the same work** only sets those aside. |
@@ -64,7 +65,14 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 
 ## How similarity is measured
 
-Two creations from the same workflow are suggested as versions only if they are similar enough for the chosen level. Variations of one image or video (another seed, a small edit, a color grade, a different size) usually score 85 % or more, unrelated results around 50 %.
+Two creations are suggested as versions only if they are related and similar enough for the chosen level. Related means:
+
+- **the same workflow**, or
+- **the same source file**: the file loaded by a **Load Image** (or Load Video) node, as in image-to-image workflows, even when the workflows differ.
+
+At the **Loose** level, creations without any such link are also suggested when they look almost identical (92 % or more). The banner says why: "come from the same workflow", "were made from the same source file" or "look almost identical".
+
+ Variations of one image or video (another seed, a small edit, a color grade, a different size) usually score 85 % or more, unrelated results around 50 %.
 
 - **Images**: overall structure (shapes, composition, light and dark areas) and the colors of a 4×4 grid, compared on the thumbnail.
 - **Videos**: the same comparison on four frames spread over the video, plus the duration.
@@ -75,6 +83,20 @@ Identical creations are duplicates rather than versions, so they are never sugge
 Groups are kept tight: a creation joins a suggestion only if it resembles **every** creation in it, not just one, so a long series can't drift from one look to another. Images and videos must also share their dominant colors, whatever their layout.
 
 The signature of each creation is computed when you add it. Creations added before this version are processed once in the background the first time the library opens, which can take a moment for many videos or long audio files. Until then they are left out of the suggestions, and the banner shows how many are still being analyzed; the suggestions refresh by themselves when it's done. Files ffmpeg can't read are never suggested; you can still group them by hand.
+
+## Settings
+
+My Own Library has its own section in ComfyUI's **Settings** (gear icon), saved in your ComfyUI user profile:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Center thumbnails on faces | On | When a picture has a single face, the square crop of the grid is centered on it; portrait pictures are framed on their upper third. |
+| Play videos on hover | On | Muted preview when the mouse is over a video card. |
+| New files badge | On | Number of new output files on the library icon. |
+| Remove from output after adding (default) | Off | Whether that box is ticked when the library opens. |
+| Similarity of version suggestions | Normal | Strict, Normal or Loose; also changed from the Detect versions banner. |
+
+Faces are found with OpenCV's face detector when OpenCV is installed (most ComfyUI setups have it through other custom nodes); without it, only the portrait framing applies. Faces of creations added before this feature are looked for once in the background. The detector's data file comes with the package for OpenCV versions that no longer include it (`data/`, OpenCV data under the Intel license kept in the file).
 
 ## Where things are stored
 

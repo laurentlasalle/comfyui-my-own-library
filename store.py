@@ -26,6 +26,7 @@ from datetime import datetime
 from . import metadata as md
 from . import similarity as sim
 from . import dupes
+from . import faces
 from .version import __version__
 
 THUMB_SIZE = 512
@@ -280,7 +281,31 @@ class Library:
             _say("Similarity and duplicates analysis done: %d creation%s in %.0f s"
                  % (len(todo), "s" if len(todo) > 1 else "", time.time() - t0))
         self._check_video_thumbnails()
+        self._compute_focus()
 
+    def _compute_focus(self):
+        """Point of interest (face) of thumbnails made before this feature, once."""
+        todo = [i["id"] for i in self.data["items"].values()
+                if i.get("focus_v") != faces.FOCUS_VERSION and i.get("kind") in ("image", "video")]
+        if not todo:
+            return
+        _say("Looking for faces in %d thumbnail%s, in the background%s" % (
+            len(todo), "s" if len(todo) > 1 else "",
+            "" if faces.opencv_available() else " (OpenCV not found: portrait framing only)"))
+        found = 0
+        for n, item_id in enumerate(todo, 1):
+            thumb = os.path.join(self.dir, "thumbs", item_id + ".jpg")
+            point = faces.focus_point(thumb) if os.path.isfile(thumb) else None
+            with self.lock:
+                item = self.data["items"].get(item_id)
+                if item:
+                    item["focus"] = point
+                    item["focus_v"] = faces.FOCUS_VERSION
+                if n % 50 == 0 or n == len(todo):
+                    self._save()
+            if point and point.get("face"):
+                found += 1
+        _say("Faces found in %d of %d thumbnails" % (found, len(todo)))
     def _check_video_thumbnails(self):
         """Redo the automatic thumbnails of videos that start in black, once.
         Thumbnails chosen by hand are never touched."""
@@ -311,6 +336,7 @@ class Library:
                     item["thumb_v"] = THUMB_VERSION
                     if changed:
                         item["modified"] = _now_iso()  # the window reloads the thumbnail
+                        item.pop("focus_v", None)      # its face is looked for again
         with self.lock:
             self._save()
         _say("Video thumbnails checked: %d too dark, redone" % redone)
@@ -336,7 +362,10 @@ class Library:
                 pass
         if not ok:
             raise ValueError("Could not make the thumbnail")
+        point = faces.focus_point(os.path.join(self.dir, "thumbs", item_id + ".jpg"))
         with self.lock:
+            item["focus"] = point
+            item["focus_v"] = faces.FOCUS_VERSION
             item["thumb_custom"] = {"time": at}
             item["modified"] = _now_iso()
             self._save()
@@ -348,7 +377,10 @@ class Library:
         if not item:
             raise KeyError(item_id)
         ok, _, _ = make_thumbnail(self.item_path(item), os.path.join(self.dir, "thumbs", item_id + ".jpg"), item["kind"])
+        point = faces.focus_point(os.path.join(self.dir, "thumbs", item_id + ".jpg")) if ok else None
         with self.lock:
+            item["focus"] = point
+            item["focus_v"] = faces.FOCUS_VERSION
             item.pop("thumb_custom", None)
             item["thumb_v"] = THUMB_VERSION
             item["modified"] = _now_iso()
@@ -642,6 +674,8 @@ class Library:
             "sig": sim.signature(dest, kind, thumb),
             "sig_v": sim.SIG_VERSION,
             "thumb_v": THUMB_VERSION,
+            "focus": faces.focus_point(thumb) if has_thumb else None,
+            "focus_v": faces.FOCUS_VERSION,
             **fp,
         }
         with self.lock:
@@ -1040,102 +1074,165 @@ class Library:
         return parts
 
     def suggestions(self, level="normal"):
-        """Creations from the same workflow that also look (or sound) alike, and
-        are not all in one work yet.
+        """Creations that look (or sound) alike and are related, not all in one
+        work yet. Related means: the same workflow, or the same source file
+        (Load Image / Load Video of image-to-image workflows). At the Loose
+        level, creations without any link are also suggested when they look
+        almost identical.
 
-        Groups are tight: a creation joins a group only if it is similar to every
-        member of it (complete linkage), so a long series can't drift from one
-        look to another. Creations without a signature yet (still being
-        analyzed, or unreadable) are left out. Each creation's score is its
-        lowest similarity to the other members, so an odd one stands out."""
+        Groups are tight: a creation joins a group only if it matches every
+        member of it (complete linkage). Creations without a signature yet are
+        left out. Each creation's score is its lowest similarity to the others."""
         import heapq
         with self.lock:
-            by_wf = {}
-            for item in self.data["items"].values():
-                wf = item.get("workflow_id")
-                if wf and item.get("sig"):
-                    by_wf.setdefault(wf, []).append(dict(item))
+            items = [dict(i) for i in self.data["items"].values() if i.get("sig")]
             dismissed_all = {k: set(v) for k, v in self.data["dismissed_suggestions"].items()}
-        out = []
-        for wf, items in by_wf.items():
-            # Creations dismissed as "not the same work" are left out, unless they
-            # already belong to a work (a new version could join it).
-            dismissed = dismissed_all.get(wf, set())
-            items = [i for i in items if i["id"] not in dismissed or i.get("work_id")]
-            # Identical creations are duplicates, not versions: keep one of each.
-            seen_content, unique = set(), []
-            for i in sorted(items, key=lambda i: (not i.get("work_id"), i.get("added", ""))):
-                key = i.get("chash") or i.get("sha")
-                if key and key in seen_content:
-                    continue
-                seen_content.add(key)
-                unique.append(i)
-            items = unique
-            if len(items) < 2:
+        # Identical creations are duplicates, not versions: keep one of each.
+        seen_content, unique = set(), []
+        for it in sorted(items, key=lambda i: (not i.get("work_id"), i.get("added", ""))):
+            key = it.get("chash") or it.get("sha")
+            if key and key in seen_content:
                 continue
+            seen_content.add(key)
+            unique.append(it)
+        items = unique
+        by_id = {it["id"]: it for it in items}
 
-            # Start with one cluster per existing work, one per loose creation.
-            cluster_of, members = {}, {}
-            for it in items:
-                cid = "w:" + it["work_id"] if it.get("work_id") else it["id"]
-                cluster_of[it["id"]] = cid
-                members.setdefault(cid, []).append(it)
+        def own_dismissed(it):
+            return not it.get("work_id") and it["id"] in dismissed_all.get(it.get("workflow_id") or "", set())
 
-            pair = {}  # (id, id) -> similarity, for pairs close enough
-            link = {}  # (cluster, cluster) -> [min similarity, matching pairs]
-            for a_i in range(len(items)):
-                for b_i in range(a_i + 1, len(items)):
-                    a, b = items[a_i], items[b_i]
-                    ca, cb = cluster_of[a["id"]], cluster_of[b["id"]]
-                    if ca == cb:
+        def cross_dismissed(it):
+            return not it.get("work_id") and (it["id"] in dismissed_all.get("*", set()) or own_dismissed(it))
+
+        def sources(it):
+            return set((it.get("summary") or {}).get("sources") or [])
+
+        # Related pairs: same workflow or same source file.
+        buckets = {}
+        for it in items:
+            if it.get("workflow_id"):
+                buckets.setdefault("wf:" + it["workflow_id"], []).append(it)
+            for src in sources(it):
+                buckets.setdefault("src:" + src, []).append(it)
+        edges = {}  # (id, id) -> similarity, both directions
+
+        def add_edge(a, b, value):
+            edges[(a["id"], b["id"])] = edges[(b["id"], a["id"])] = value
+
+        done = set()
+        for members in buckets.values():
+            for x in range(len(members)):
+                for y in range(x + 1, len(members)):
+                    a, b = members[x], members[y]
+                    pair = (a["id"], b["id"]) if a["id"] < b["id"] else (b["id"], a["id"])
+                    if pair in done:
+                        continue
+                    done.add(pair)
+                    if a.get("work_id") and a.get("work_id") == b.get("work_id"):
+                        continue
+                    same_wf = a.get("workflow_id") and a.get("workflow_id") == b.get("workflow_id")
+                    if (same_wf and (own_dismissed(a) or own_dismissed(b))) or \
+                            (not same_wf and (cross_dismissed(a) or cross_dismissed(b))):
                         continue
                     parts = self._compare(a, b)
-                    if not sim.matches(parts, a["kind"], level):
-                        continue
-                    pair[(a["id"], b["id"])] = pair[(b["id"], a["id"])] = parts[0]
-                    key = (ca, cb) if ca < cb else (cb, ca)
-                    entry = link.setdefault(key, [1.0, 0])
-                    entry[0] = min(entry[0], parts[0])
-                    entry[1] += 1
-            # Two clusters can merge only if every cross pair matches.
-            link = {k: v[0] for k, v in link.items()
-                    if v[1] == len(members[k[0]]) * len(members[k[1]])}
-            heap = [(-v, k) for k, v in link.items()]
-            heapq.heapify(heap)
-            while heap:
-                neg, (ca, cb) = heapq.heappop(heap)
-                if link.get((ca, cb)) != -neg:
-                    continue  # stale entry
-                # Merge cb into ca.
-                for k in list(members):
-                    if k in (ca, cb):
-                        continue
-                    ka = (ca, k) if ca < k else (k, ca)
-                    kb = (cb, k) if cb < k else (k, cb)
-                    va, vb = link.pop(ka, None), link.pop(kb, None)
-                    if va is not None and vb is not None:
-                        link[ka] = min(va, vb)
-                        heapq.heappush(heap, (-link[ka], ka))
-                link.pop((ca, cb), None)
-                members[ca].extend(members.pop(cb))
-
-            for group in members.values():
-                if len(group) < 2:
+                    if sim.matches(parts, a["kind"], level):
+                        add_edge(a, b, parts[0])
+        # Loose: almost identical, whatever their origin.
+        if level == "loose":
+            for a_id, b_id, value in self._lookalikes(items):
+                a, b = by_id.get(a_id), by_id.get(b_id)
+                if not a or not b or (a_id, b_id) in edges:
                     continue
-                works = {m.get("work_id") for m in group}
-                if len(works) == 1 and None not in works:
-                    continue  # already one work
-                group.sort(key=lambda m: m.get("created", ""))
-                scores = {}
-                for m in group:
-                    values = [pair[(m["id"], o["id"])] for o in group
-                              if o is not m and (m["id"], o["id"]) in pair]
-                    if values:
-                        scores[m["id"]] = round(min(values) * 100)
-                out.append({"workflow_id": wf, "ids": [m["id"] for m in group], "scores": scores})
-        out.sort(key=lambda g: max(self.data["items"][i].get("added", "") for i in g["ids"]
-                                   if i in self.data["items"]), reverse=True)
+                if a.get("work_id") and a.get("work_id") == b.get("work_id"):
+                    continue
+                if cross_dismissed(a) or cross_dismissed(b):
+                    continue
+                add_edge(a, b, value)
+
+        # Complete-linkage clustering over the matching pairs, starting with one
+        # cluster per existing work and one per loose creation.
+        involved = {a for a, _ in edges}
+        cluster_of, members = {}, {}
+        for it in items:
+            if it["id"] not in involved:
+                continue
+            cid = "w:" + it["work_id"] if it.get("work_id") else it["id"]
+            cluster_of[it["id"]] = cid
+            members.setdefault(cid, [])
+        for it in items:  # whole works, even members without a match of their own
+            if it.get("work_id") and ("w:" + it["work_id"]) in members:
+                cluster_of[it["id"]] = "w:" + it["work_id"]
+            if it["id"] in cluster_of:
+                members[cluster_of[it["id"]]].append(it)
+        link = {}
+        for (a, b), value in edges.items():
+            if a > b:
+                continue
+            ca, cb = cluster_of[a], cluster_of[b]
+            if ca == cb:
+                continue
+            key = (ca, cb) if ca < cb else (cb, ca)
+            entry = link.setdefault(key, [1.0, 0])
+            entry[0] = min(entry[0], value)
+            entry[1] += 1
+        link = {k: v[0] for k, v in link.items() if v[1] == len(members[k[0]]) * len(members[k[1]])}
+        heap = [(-v, k) for k, v in link.items()]
+        heapq.heapify(heap)
+        while heap:
+            neg, (ca, cb) = heapq.heappop(heap)
+            if link.get((ca, cb)) != -neg:
+                continue
+            for k in list(members):
+                if k in (ca, cb):
+                    continue
+                ka = (ca, k) if ca < k else (k, ca)
+                kb = (cb, k) if cb < k else (k, cb)
+                va, vb = link.pop(ka, None), link.pop(kb, None)
+                if va is not None and vb is not None:
+                    link[ka] = min(va, vb)
+                    heapq.heappush(heap, (-link[ka], ka))
+            link.pop((ca, cb), None)
+            members[ca].extend(members.pop(cb))
+
+        out = []
+        for group in members.values():
+            if len(group) < 2:
+                continue
+            works = {m.get("work_id") for m in group}
+            if len(works) == 1 and None not in works:
+                continue  # already one work
+            group.sort(key=lambda m: m.get("created", ""))
+            scores = {}
+            for m in group:
+                values = [edges[(m["id"], o["id"])] for o in group if o is not m and (m["id"], o["id"]) in edges]
+                if values:
+                    scores[m["id"]] = round(min(values) * 100)
+            wfs = {m.get("workflow_id") for m in group}
+            if len(wfs) == 1 and None not in wfs:
+                reason, key = "workflow", next(iter(wfs))
+            else:
+                common = set.intersection(*(sources(m) for m in group))
+                reason, key = ("source" if common else "lookalike"), "*"
+            out.append({"workflow_id": key, "reason": reason, "ids": [m["id"] for m in group], "scores": scores})
+        with self.lock:
+            added = {i: self.data["items"][i].get("added", "") for g in out for i in g["ids"] if i in self.data["items"]}
+        out.sort(key=lambda g: max(added.get(i, "") for i in g["ids"]), reverse=True)
         return out
+
+    def _lookalikes(self, items):
+        """Almost identical pairs across the library, cached until the set of
+        creations (or their signatures) changes."""
+        key = hash(tuple(sorted((i["id"], i.get("sig_v")) for i in items)))
+        cached = getattr(self, "_lookalike_cache", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        try:
+            pairs = sim.lookalike_pairs([(i["id"], i["kind"], i.get("sig")) for i in items])
+        except Exception as e:
+            _say("Could not compare creations across workflows: %s" % e)
+            pairs = []
+        self._lookalike_cache = (key, pairs)
+        return pairs
 
     def dismiss_suggestion(self, workflow_id, ids=None):
         """Stop suggesting these creations of a workflow (all of them by default)."""

@@ -221,3 +221,50 @@ def matches(parts, kind, level):
     if value < threshold(kind, level):
         return False
     return color is None or color >= LEVELS.get(level, LEVELS["normal"])["color"]
+
+
+# ------------------------------------------------------- across workflows
+# Creations without any link in their metadata are suggested only when they
+# look almost identical (Loose level).
+LOOKALIKE = 0.92
+
+
+def lookalike_pairs(entries, threshold=LOOKALIKE):
+    """Pairs of (id_a, id_b, score) among [(id, kind, sig)] that look almost
+    identical. Images and videos only; compared all against all with NumPy,
+    then confirmed with compare()."""
+    import numpy as np
+    rows = []
+    for item_id, kind, sig in entries:
+        if not sig or kind not in ("image", "video"):
+            continue
+        base = sig if kind == "image" else (sig.get("frames") or [None])[0]
+        if not base or "dh" not in base:
+            continue
+        rows.append((item_id, kind, sig, base))
+    n = len(rows)
+    if n < 2:
+        return []
+    hashes = np.array([np.frombuffer(bytes.fromhex(r[3]["dh"]), dtype=np.uint8) for r in rows])
+    cols = np.array([r[3]["col"] for r in rows], dtype=np.float32)
+    kinds = np.array([0 if r[1] == "image" else 1 for r in rows])
+    popcount = np.array([bin(v).count("1") for v in range(256)], dtype=np.uint16)
+    out = []
+    block = 32  # rows compared at once: keeps memory low for large libraries
+    for start in range(0, n, block):
+        a_hash = hashes[start:start + block]
+        a_cols = cols[start:start + block]
+        ham = popcount[a_hash[:, None, :] ^ hashes[None, :, :]].sum(axis=2) / 256.0
+        diff = np.abs(a_cols[:, None, :] - cols[None, :, :]).sum(axis=2) / (cols.shape[1] * 255.0)
+        score = 0.65 * (1.0 - ham) + 0.35 * np.clip(1.0 - diff * 3.0, 0.0, 1.0)
+        # Rough first pass a little below the bar, exact check after.
+        cand = np.argwhere(score >= threshold - 0.04)
+        for i, j in cand:
+            gi = start + int(i)
+            gj = int(j)
+            if gj <= gi or kinds[gi] != kinds[gj]:
+                continue
+            parts = compare(rows[gi][2], rows[gj][2])
+            if parts and parts[0] >= threshold:
+                out.append((rows[gi][0], rows[gj][0], parts[0]))
+    return out

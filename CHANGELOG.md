@@ -2,6 +2,14 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.8.0 (2026-10-29)
+
+- Version suggestions across workflows: creations made from the same source file (Load Image of image-to-image workflows) are related like those of one workflow; at the Loose level, near-identical creations (92 % or more) are suggested whatever their origin. The banner says why.
+- Thumbnails centered on the face when a picture has a single subject (OpenCV), portrait pictures framed on their upper third. Existing thumbnails are processed once in the background.
+- Settings in ComfyUI's Settings panel: center on faces, play videos on hover, new files badge, remove from output after adding (default), similarity.
+- Clear icon in the search field (as in Templates); **Esc** clears the search.
+- Opening **Detect versions** from further down the grid scrolls back to the banner.
+
 ## 0.7.4 (2026-10-29)
 
 - **Changes since**: prompt changes are shown in the text itself, like tracked changes (added words highlighted, removed ones struck through, at their place). A prompt that is mostly new shows **Rewritten**, with **Show differences**.

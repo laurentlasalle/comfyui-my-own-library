@@ -388,7 +388,7 @@ def _is_ref(value):
             and isinstance(value[0], (str, int)) and isinstance(value[1], int))
 
 
-SUMMARY_VERSION = 5
+SUMMARY_VERSION = 6  # 6: "sources" (files loaded by Load Image / Load Video nodes)
 
 # Inputs whose value is never the main diffusion model, ignored for family detection
 # unless nothing else matched.
@@ -586,7 +586,7 @@ def summarize(prompt, filename=None, workflow=None):
     """Build a readable summary from an API-format prompt dict. Only the nodes
     that contributed to this file count (see used_nodes)."""
     summary = {"positive": [], "negative": [], "text": [], "seeds": [], "models": [], "loras": [],
-               "family": None, "families": [], "v": SUMMARY_VERSION}
+               "family": None, "families": [], "sources": [], "v": SUMMARY_VERSION}
     if not isinstance(prompt, dict):
         return summary
     prompt = {str(k): v for k, v in prompt.items()}
@@ -658,8 +658,17 @@ def summarize(prompt, filename=None, workflow=None):
         # A sampler with add_noise disabled (second pass of Wan 2.2, for example)
         # doesn't use its seed.
         noise_off = str(inputs.get("add_noise", "")).lower() in ("disable", "disabled", "false")
+        is_loader = "load" in str(node.get("class_type", "")).lower()
         for key, value in inputs.items():
             lkey = key.lower()
+            if is_loader and lkey in ("image", "video", "audio", "file") and isinstance(value, str):
+                # Source file of image-to-image / video workflows ("photo.png [input]").
+                src = re.sub(r"\s*\[[a-z]+\]$", "", value.strip())
+                if os.path.splitext(src)[1].lower() in IMAGE_EXTS | VIDEO_EXTS | AUDIO_EXTS:
+                    base = os.path.basename(src.replace("\\", "/"))
+                    if base not in summary["sources"]:
+                        summary["sources"].append(base)
+                continue
             if lkey in SEED_KEYS and isinstance(value, (int, float)) and not isinstance(value, bool):
                 if not noise_off:
                     summary["seeds"].append(int(value))
