@@ -2,6 +2,10 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.7.1 (2026-10-29)
+
+- Fixed: "null" appeared next to **New thumbnail** after **Reset thumbnail**.
+
 ## 0.7.0 (2026-10-29)
 
 - Model Filter, sort and Similarity menus styled like ComfyUI's own (Templates).

@@ -1846,11 +1846,13 @@ function previewEl(kind, src, thumb) {
 function thumbButtons(it, preview) {
     const box = h("div", { class: "mol-thumbbtns" });
     const fill = () => {
-        box.replaceChildren(
+        // replaceChildren would write a missing button as the text "null".
+        box.replaceChildren(...[
             it.thumb_custom ? h("button", { class: "mol-btn mol-overbtn", title: "Back to the automatic thumbnail",
                 onclick: () => resetThumbnail(it, fill, preview) }, icon("replay"), "Reset thumbnail") : null,
             h("button", { class: "mol-btn mol-overbtn", title: "Use the frame shown in the player as this video's thumbnail",
-                onclick: (e) => newThumbnail(it, preview.querySelector("video"), e.currentTarget, fill, preview) }, icon("camera"), "New thumbnail"));
+                onclick: (e) => newThumbnail(it, preview.querySelector("video"), e.currentTarget, fill, preview) }, icon("camera"), "New thumbnail"),
+        ].filter(Boolean));
     };
     fill();
     return box;
