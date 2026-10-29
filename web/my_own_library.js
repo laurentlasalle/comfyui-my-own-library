@@ -315,6 +315,9 @@ const CSS = `
 .mol-kv div:nth-child(odd){color:var(--mol-dim)}
 .mol-kv div{word-break:break-word}
 .mol-infofoot{display:flex;gap:8px;flex-wrap:wrap;padding:14px 16px;border-top:1px solid var(--mol-border)}
+.mol-footsmall{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+.mol-footsmall .mol-btn{height:32px;box-sizing:border-box;padding:0 12px;gap:6px;font-size:12px;border-radius:8px}
+.mol-footsmall .mol-btn i{font-size:12px}
 .mol-saved{color:var(--mol-dim);font-size:12px;margin-left:auto}
 .mol-sidebar{padding:16px;display:grid;gap:14px}
 .mol-sidecard{display:grid;gap:12px;padding:16px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:12px;
@@ -603,10 +606,27 @@ const itemFile = (it, extra = {}) => url("/file", { id: it.id, ...extra });
 const fileThumb = (f) => url("/thumb", { root: f.root, rel: f.rel, v: f.mtime });
 const fileSource = (f) => url("/source", { root: f.root, rel: f.rel });
 
+// Thumbnails already loaded (or loading) are reused when the grid is redrawn,
+// instead of being requested again: fewer requests cut short by the browser.
+const thumbCache = new Map();
+let thumbsUsed = new Set();  // reset at each render: one element can only be in one place
+
 function thumbEl(src, kind, videoSrc) {
     const wrap = h("div", { style: { width: "100%", height: "100%" } });
-    const img = h("img", { src, loading: "lazy", draggable: "false" });
+    let img = thumbCache.get(src);
+    if (img && !thumbsUsed.has(src)) {
+        thumbsUsed.add(src);
+        thumbCache.delete(src);
+        thumbCache.set(src, img);  // most recently used last
+        wrap.append(img);  // moved from the previous grid, still loaded
+        return wrap;
+    }
+    thumbsUsed.add(src);
+    img = h("img", { src, loading: "lazy", draggable: "false" });
+    thumbCache.set(src, img);
+    if (thumbCache.size > 3000) thumbCache.delete(thumbCache.keys().next().value);
     img.onerror = () => {
+        thumbCache.delete(src);
         if (kind === "video" && videoSrc) {
             const v = h("video", { src: videoSrc + "#t=0.5", muted: true, preload: "metadata", playsinline: true });
             v.muted = true;
@@ -685,6 +705,7 @@ function pruneFilters() {
 function render() {
     if (!S.dialog) return;
     closeMenu();
+    thumbsUsed = new Set();
     stopHoverVideos();
     pruneFilters();
     const root = S.dialog.querySelector(".mol-root");
@@ -2117,10 +2138,10 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         h("button", { class: "mol-btn", disabled: !!it.work_cover, title: "Show this version on the card",
             onclick: async () => { await versionAction("cover", { id: it.id }); refreshDetailWork(it.id); } },
         icon("image"), it.work_cover ? "Cover" : "Set as cover"),
-        h("button", { class: "mol-iconbtn", disabled: ver === 0, title: "Move this version earlier (Alt+↑)",
-            onclick: () => shiftVersion(-1) }, icon("arrow-up")),
-        h("button", { class: "mol-iconbtn", disabled: ver === members.length - 1, title: "Move this version later (Alt+↓)",
-            onclick: () => shiftVersion(1) }, icon("arrow-down")),
+        h("button", { class: "mol-btn", disabled: ver === 0, title: "Move this version one place earlier in the work (Alt+↑)",
+            onclick: () => shiftVersion(-1) }, icon("angle-double-left"), "Move earlier"),
+        h("button", { class: "mol-btn", disabled: ver === members.length - 1, title: "Move this version one place later in the work (Alt+↓)",
+            onclick: () => shiftVersion(1) }, icon("angle-double-right"), "Move later"),
         members.some((m) => m.work_pos != null) ? h("button", { class: "mol-btn", title: "Put the versions back in order of creation",
             onclick: async () => { await versionAction("sortbydate", { work_id: it.work_id }); refreshDetailWork(it.id); } },
         icon("sort"), "Sort by date") : null,
@@ -2134,9 +2155,9 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
             icon("sitemap"), "Load workflow"),
         it.summary?.positive?.length ? h("button", { class: "mol-btn", onclick: () => copyText(it.summary.positive.join("\n\n")) }, icon("copy"), "Copy prompt") : null,
         h("a", { class: "mol-btn", href: itemFile(it, { download: 1 }), title: "Download" }, icon("download")),
-        ...versionButtons,
-        removeBtn,
-        saved));
+        saved,
+        // Second row: smaller, like the filter buttons of the main view.
+        h("div", { class: "mol-footsmall" }, ...versionButtons.filter(Boolean), removeBtn)));
 }
 
 // After a version change, rebuild the list shown in the detail panel and
