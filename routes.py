@@ -313,6 +313,27 @@ def setup_routes():
                 errors.append(str(e))
         return web.json_response({"kept": kept, "errors": errors, **(await run(lib.snapshot))})
 
+    @routes.post(PREFIX + "/item/thumbnail")
+    async def post_item_thumbnail(request):
+        """New thumbnail from a frame captured in the window (data URL), or
+        reset to the automatic one."""
+        body = await request.json()
+        lib = library()
+        try:
+            if body.get("reset"):
+                item = await run(lib.reset_thumbnail, body.get("id", ""))
+            else:
+                import base64
+                data = body.get("image", "")
+                raw = base64.b64decode(data.split(",", 1)[1] if "," in data else data)
+                item = await run(lib.set_thumbnail, body.get("id", ""), raw, body.get("time"))
+        except KeyError:
+            return error("Not found", 404)
+        except Exception as e:
+            return error(e)
+        item = {k: v for k, v in item.items() if k not in ("sig", "sig_v", "sha", "chash", "hash_v")}
+        return web.json_response({"item": item})
+
     @routes.post(PREFIX + "/job/cancel")
     async def post_job_cancel(request):
         """The window stopped a job between two batches: print its summary."""

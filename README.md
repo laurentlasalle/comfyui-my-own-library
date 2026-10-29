@@ -58,6 +58,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Duplicates skipped when adding | A banner in the Output view lists the files that were not copied and which creation each one matches. **Add anyway** copies them as separate creations. |
 | Merge duplicates | **Duplicates** in the left column (shown only when there are some). **Keep one** keeps a single creation per group: a version of a work if one of the copies is in a work, otherwise the first added. It gets the tags and notes of all the copies, stays a favorite if any copy was, and takes the oldest creation date. The other copies leave the library; files in `output` are not touched. **Keep one of each** does it for every group, after confirmation. |
 | Follow a long operation | Adding, moving, deleting from output and removing from the library are done one file at a time. A progress bar replaces the action bar (other actions wait until it ends), with **Cancel** to stop after the current file; what is already done stays done. ComfyUI's terminal shows each file (`[My Own Library] Added 37/240: ...`) and a summary at the end. The Output view then refreshes with the files left, keeping the current filters and search. |
+| Video thumbnail | Pause the video on the frame you want (or move along its timeline) and click **New thumbnail** at the top right of the player. **Reset thumbnail** in the panel goes back to the automatic one. A chosen thumbnail is never replaced automatically. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
 | Work on several creations | Tick cards (checkbox on hover) or use **Select all shown** for the whole current view, then **Move to category**, **Add tags**, **Remove N from library** (a card with versions is removed with all its versions, after confirmation) or **Group as versions**. |
 
@@ -101,7 +102,9 @@ The `user` folder is not touched by ComfyUI updates, so the library survives the
 
 ## Video thumbnails
 
-Video thumbnails come from the companion PNG saved by VideoHelperSuite when it exists. Otherwise the first frames are extracted with ffmpeg (the system one, or the one bundled with `imageio-ffmpeg`, which VideoHelperSuite installs). Without ffmpeg, the browser shows the video's first frame directly.
+Video thumbnails come from the companion PNG saved by VideoHelperSuite when it exists. Otherwise the first frames are extracted with ffmpeg (the system one, or the one bundled with `imageio-ffmpeg`, which VideoHelperSuite installs). Without ffmpeg, the browser shows the video's first frame directly. When that frame is nearly black (a fade in, a dark intro), frames further into the video are tried until one is bright enough. Thumbnails of videos added with an older version are checked once in the background and redone if they are too dark.
+
+Background work (analyzing creations added with an older version, checking video thumbnails) is reported in ComfyUI's terminal: one line when it starts, one per thumbnail redone, and a summary.
 
 ## Metadata support
 

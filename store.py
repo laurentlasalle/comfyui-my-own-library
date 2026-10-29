@@ -28,6 +28,11 @@ from . import similarity as sim
 from . import dupes
 
 THUMB_SIZE = 512
+THUMB_VERSION = 2  # 2: video thumbnails skip black first frames
+
+
+def _say(text):
+    print("[My Own Library] " + text, flush=True)
 SHARED_FIELDS = ("title", "category", "tags", "favorite")
 LIBRARY_VERSION = 1
 
@@ -60,6 +65,83 @@ def _ffmpeg():
     return md.ffmpeg_exe()
 
 
+def brightness(path):
+    """Average brightness of an image, 0 (black) to 255."""
+    from PIL import Image
+    with Image.open(path) as img:
+        small = img.convert("L").resize((32, 32))
+        data = list(small.getdata())
+    return sum(data) / len(data)
+
+
+DARK = 24  # below this average brightness, a frame is considered black
+
+
+def _video_frame(src, dest):
+    """A representative frame of a video, as an image path: the companion PNG
+    or a frame near the start, unless it is (nearly) black, in which case
+    frames further in are tried. Returns (path, temp_path_to_delete)."""
+    candidates = []
+    comp = md.companion_png(src)
+    if comp:
+        candidates.append(("file", comp))
+    candidates += [("seek", 0.5), ("seek", 0)]
+    exe = _ffmpeg()
+    flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+    tmp = dest + ".frame.png"
+    best, best_light, later_added = None, -1, False
+    i = 0
+    while i < len(candidates):
+        how, where = candidates[i]
+        i += 1
+        path = where if how == "file" else None
+        if how == "seek":
+            if not exe:
+                continue
+            out = "%s.%d.png" % (tmp, i)
+            try:
+                subprocess.run([exe, "-y", "-loglevel", "error", "-ss", str(where), "-i", src, "-frames:v", "1", out],
+                               timeout=30, check=True, creationflags=flags,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                continue
+            if not os.path.isfile(out):
+                continue
+            path = out
+        try:
+            light = brightness(path)
+        except Exception:
+            continue
+        if light > best_light:
+            if best and best != comp:
+                try:
+                    os.remove(best)
+                except OSError:
+                    pass
+            best, best_light = path, light
+        elif path != comp:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        if best_light >= DARK:
+            break
+        if not later_added and exe:
+            # Dark start: look further into the video.
+            later_added = True
+            from .similarity import _duration
+            duration = _duration(src) or 0
+            for t in (1, 2, 4):
+                if not duration or t < duration:
+                    candidates.append(("seek", t))
+            for frac in (0.1, 0.25, 0.5):
+                if duration:
+                    candidates.append(("seek", round(duration * frac, 2)))
+    if not best:
+        return None, None
+    return best, (None if best == comp else best)
+
+
 def make_thumbnail(src, dest, kind):
     """Create a JPEG thumbnail. Returns (ok, width, height) of the source image."""
     from PIL import Image, ImageOps
@@ -68,36 +150,17 @@ def make_thumbnail(src, dest, kind):
     if kind == "audio":
         return _waveform(src, dest)
     if kind == "video":
-        comp = md.companion_png(src)
-        if comp:
-            src, kind = comp, "image"
-        else:
-            exe = _ffmpeg()
-            if not exe:
-                return False, None, None
-            tmp = dest + ".frame.png"
-            flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
-            for seek in ("0.5", "0"):
+        frame, temp = _video_frame(src, dest)
+        if not frame:
+            return False, None, None
+        try:
+            return make_thumbnail(frame, dest, "image")
+        finally:
+            if temp:
                 try:
-                    subprocess.run(
-                        [exe, "-y", "-loglevel", "error", "-ss", seek, "-i", src,
-                         "-frames:v", "1", tmp],
-                        timeout=30, check=True, creationflags=flags,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if os.path.isfile(tmp):
-                        break
-                except Exception:
-                    continue
-            if not os.path.isfile(tmp):
-                return False, None, None
-            try:
-                ok, w, h = make_thumbnail(tmp, dest, "image")
-            finally:
-                try:
-                    os.remove(tmp)
+                    os.remove(temp)
                 except OSError:
                     pass
-            return ok, w, h
     with Image.open(src) as img:
         width, height = img.size
         img.seek(0)
@@ -185,9 +248,13 @@ class Library:
 
     def _backfill_signatures(self):
         """Similarity signatures and duplicate fingerprints of creations added
-        before these features, computed once."""
+        before these features, computed once; then the video thumbnail check."""
         todo = [i["id"] for i in self.data["items"].values()
                 if i.get("sig_v") != sim.SIG_VERSION or i.get("hash_v") != dupes.HASH_VERSION]
+        if todo:
+            _say("Analyzing %d creation%s for similarity and duplicates, in the background"
+                 % (len(todo), "s" if len(todo) > 1 else ""))
+        t0 = time.time()
         for n, item_id in enumerate(todo, 1):
             item = self.get(item_id)
             if not item:
@@ -208,6 +275,84 @@ class Library:
                     item.update(update)
                 if n % 20 == 0 or n == len(todo):
                     self._save()
+        if todo:
+            _say("Similarity and duplicates analysis done: %d creation%s in %.0f s"
+                 % (len(todo), "s" if len(todo) > 1 else "", time.time() - t0))
+        self._check_video_thumbnails()
+
+    def _check_video_thumbnails(self):
+        """Redo the automatic thumbnails of videos that start in black, once.
+        Thumbnails chosen by hand are never touched."""
+        todo = [i["id"] for i in self.data["items"].values()
+                if i.get("kind") == "video" and not i.get("thumb_custom") and i.get("thumb_v") != THUMB_VERSION]
+        if not todo:
+            return
+        _say("Checking %d video thumbnail%s in the background" % (len(todo), "s" if len(todo) > 1 else ""))
+        redone = 0
+        for item_id in todo:
+            item = self.get(item_id)
+            if not item or item.get("thumb_custom"):
+                continue
+            thumb = os.path.join(self.dir, "thumbs", item_id + ".jpg")
+            changed = False
+            try:
+                dark = not os.path.isfile(thumb) or brightness(thumb) < DARK
+                if dark:
+                    ok, _, _ = make_thumbnail(self.item_path(item), thumb, "video")
+                    if ok and brightness(thumb) >= DARK:
+                        changed = True
+                        redone += 1
+                        _say("  new thumbnail (first frames too dark): %s" % item.get("title", item_id))
+            except Exception:
+                pass
+            with self.lock:
+                if item_id in self.data["items"] and not item.get("thumb_custom"):
+                    item["thumb_v"] = THUMB_VERSION
+                    if changed:
+                        item["modified"] = _now_iso()  # the window reloads the thumbnail
+        with self.lock:
+            self._save()
+        _say("Video thumbnails checked: %d too dark, redone" % redone)
+
+    # ------------------------------------------------------------ thumbnails
+    def set_thumbnail(self, item_id, image_bytes, at=None):
+        """Use an image (a frame chosen in the window) as the thumbnail."""
+        import io
+        from PIL import Image
+        item = self.get(item_id)
+        if not item:
+            raise KeyError(item_id)
+        tmp = os.path.join(self.dir, "thumbs", item_id + ".new.png")
+        os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img.convert("RGB").save(tmp)
+        try:
+            ok, _, _ = make_thumbnail(tmp, os.path.join(self.dir, "thumbs", item_id + ".jpg"), "image")
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        if not ok:
+            raise ValueError("Could not make the thumbnail")
+        with self.lock:
+            item["thumb_custom"] = {"time": at}
+            item["modified"] = _now_iso()
+            self._save()
+            return dict(item)
+
+    def reset_thumbnail(self, item_id):
+        """Back to the automatic thumbnail."""
+        item = self.get(item_id)
+        if not item:
+            raise KeyError(item_id)
+        ok, _, _ = make_thumbnail(self.item_path(item), os.path.join(self.dir, "thumbs", item_id + ".jpg"), item["kind"])
+        with self.lock:
+            item.pop("thumb_custom", None)
+            item["thumb_v"] = THUMB_VERSION
+            item["modified"] = _now_iso()
+            self._save()
+            return dict(item)
 
     def _refresh_summaries(self):
         """Bring items added by an older version up to date: summary (prompt
@@ -494,6 +639,7 @@ class Library:
             "work_id": None,
             "sig": sim.signature(dest, kind, thumb),
             "sig_v": sim.SIG_VERSION,
+            "thumb_v": THUMB_VERSION,
             **fp,
         }
         with self.lock:

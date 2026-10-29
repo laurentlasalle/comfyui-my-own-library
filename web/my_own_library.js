@@ -235,6 +235,7 @@ const CSS = `
 .mol-more{display:flex;justify-content:center;padding:26px}
 .mol-actionbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 30px;border-top:1px solid var(--mol-border);background:var(--mol-panel)}
 .mol-detail{position:absolute;inset:0;background:var(--mol-bg);display:flex;z-index:5}
+.mol-newthumb{position:absolute;top:16px;right:16px;z-index:3;background:rgba(20,20,20,.75);backdrop-filter:blur(4px)}
 .mol-preview{flex:1;display:flex;align-items:center;justify-content:center;background:#0f0f0f;position:relative;min-width:0}
 .mol-preview img,.mol-preview video{max-width:100%;max-height:100%;object-fit:contain}
 .mol-navarrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(40,40,40,.8);border:0;color:#fff;
@@ -1666,6 +1667,45 @@ function previewEl(kind, src, thumb) {
         : h("img", { src, draggable: "false" });
 }
 
+// Thumbnail from the frame shown in the player (paused or playing).
+async function newThumbnail(it, video, btn) {
+    if (!video || !video.videoWidth) { toast("New thumbnail", "The video isn't loaded yet", "warn"); return; }
+    const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (btn) btn.disabled = true;
+    try {
+        const res = await call("/item/thumbnail", { id: it.id, image: canvas.toDataURL("image/jpeg", 0.92), time: video.currentTime });
+        applyItemUpdate(res.item);
+        const work = it.work_id && S.items.filter((x) => x.work_id === it.work_id).length > 1;
+        toast("New thumbnail", work && !res.item.work_cover
+            ? `Taken at ${video.currentTime.toFixed(1)} s. This version isn't the cover: use Set as cover to show it on the card.`
+            : `Taken at ${video.currentTime.toFixed(1)} s`);
+    } catch (e) {
+        toast("Could not set the thumbnail", e.message, "error");
+    }
+    if (btn) btn.disabled = false;
+    refreshDetailWork(it.id);
+}
+
+async function resetThumbnail(it) {
+    try {
+        const res = await call("/item/thumbnail", { id: it.id, reset: true });
+        applyItemUpdate(res.item);
+        toast("Thumbnail reset", it.title);
+    } catch (e) {
+        toast("Could not reset the thumbnail", e.message, "error");
+    }
+    refreshDetailWork(it.id);
+}
+
+function applyItemUpdate(item) {
+    const idx = S.items.findIndex((x) => x.id === item.id);
+    if (idx >= 0) S.items[idx] = item;  // the server sends the whole item
+}
+
 function renderDetail() {
     const { type, list, index } = S.detail;
     const isItem = type === "item";
@@ -1705,6 +1745,10 @@ function renderDetail() {
         list.length > 1 ? h("button", { class: "mol-navarrow", style: { left: "16px" }, title: "Previous (←)", onclick: () => moveDetail(-1) }, icon("chevron-left")) : null,
         list.length > 1 ? h("button", { class: "mol-navarrow", style: { right: "16px" }, title: "Next (→)", onclick: () => moveDetail(1) }, icon("chevron-right")) : null,
         strip);
+    if (isItem && entry.kind === "video") {
+        preview.append(h("button", { class: "mol-btn mol-newthumb", title: "Use the frame shown in the player as this video's thumbnail",
+            onclick: (e) => newThumbnail(entry, preview.querySelector("video"), e.currentTarget) }, icon("camera"), "New thumbnail"));
+    }
 
     const info = h("aside", { class: "mol-info" });
     const headTitle = h("div", { style: { fontWeight: 600, flex: 1 } }, `${index + 1} / ${list.length}`,
@@ -1844,6 +1888,11 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         } catch (e) { toast("Could not remove", e.message, "error"); }
     } }, icon("trash"), h("span", {}, versioned ? `Remove v${ver + 1}` : "Remove"));
 
+    const thumbButtons = it.thumb_custom ? [
+        h("button", { class: "mol-btn", title: "Back to the automatic thumbnail",
+            onclick: () => resetThumbnail(it) }, icon("replay"), "Reset thumbnail"),
+    ] : [];
+
     const versionButtons = versioned ? [
         h("button", { class: "mol-btn", disabled: !!it.work_cover, title: "Show this version on the card",
             onclick: async () => { await versionAction("cover", { id: it.id }); refreshDetailWork(it.id); } },
@@ -1865,6 +1914,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
             icon("sitemap"), "Load workflow"),
         it.summary?.positive?.length ? h("button", { class: "mol-btn", onclick: () => copyText(it.summary.positive.join("\n\n")) }, icon("copy"), "Copy prompt") : null,
         h("a", { class: "mol-btn", href: itemFile(it, { download: 1 }), title: "Download" }, icon("download")),
+        ...thumbButtons,
         ...versionButtons,
         removeBtn,
         saved));
