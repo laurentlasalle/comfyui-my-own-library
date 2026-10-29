@@ -131,7 +131,9 @@ const CSS = `
 .mol-tools i:hover{opacity:1}
 .mol-section{display:flex;align-items:center;justify-content:space-between;color:var(--mol-dim);font-size:12px;
   font-weight:700;padding:20px 12px 0;text-transform:uppercase;min-height:16px}
-.mol-addcat{font-size:12px;padding:4px 6px;min-width:22px;min-height:22px;color:var(--mol-dim)}
+.mol-section{padding-right:16px}
+.mol-addcat{font-size:12px;padding:4px;margin:-4px -4px -4px 0;min-width:0;min-height:0;color:var(--mol-fg);line-height:1}
+.mol-addcat i{font-size:12px}
 .mol-navfoot{margin-top:auto;padding:16px 10px 2px;color:var(--mol-dim);font-size:11px;word-break:break-all;line-height:1.5}
 .mol-inline-input{width:100%;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
 .mol-main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
@@ -229,6 +231,33 @@ const CSS = `
 .mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden}
 .mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
 .mol-chipcount{margin-left:6px;padding:0 7px;border-radius:9px;background:var(--mol-accent);color:#1b1b1b;font-size:12px;font-weight:700;line-height:18px}
+.mol-dd{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 10px;min-width:0;
+  border:1px solid rgba(255,255,255,.14);border-radius:8px;background:transparent;color:var(--mol-fg);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.mol-dd:hover,.mol-dd.open{background:var(--mol-hover)}
+.mol-dd>i{font-size:12px;color:var(--mol-dim)}
+.mol-dd .mol-ddlabel{overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.mol-dd .mol-ddchev{font-size:10px;margin-left:6px}
+.mol-ddcount{display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:14px;border-radius:7px;background:var(--mol-fg);color:#171718;font-size:9px;font-weight:600;padding:0 3px}
+.mol-ddpanel{position:absolute;z-index:40;background:#171718;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;flex-direction:column;outline:none;font-size:14px;animation:mol-ddin .12s ease-out}
+@keyframes mol-ddin{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+.mol-ddlist{overflow:auto;display:flex;flex-direction:column;gap:2px}
+.mol-dditem{display:flex;align-items:center;gap:12px;padding:12px 8px;border-radius:4px;cursor:pointer;white-space:nowrap}
+.mol-ddpanel.multi .mol-dditem{height:40px;box-sizing:border-box;padding:0 8px;gap:8px;border-radius:8px}
+.mol-dditem.hl{background:var(--mol-hover)}
+.mol-dditem.on{background:#3c3d42}
+.mol-ddpanel.multi .mol-dditem.on{background:transparent}
+.mol-ddpanel.multi .mol-dditem.on.hl{background:var(--mol-hover)}
+.mol-ddtext{flex:1}
+.mol-ddhint{color:var(--mol-dim);font-size:12px}
+.mol-ddcheck i{font-size:12px}
+.mol-ddbox{width:16px;height:16px;border-radius:4px;background:#3c3d42;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.mol-ddbox.on{background:#0b8ce9}
+.mol-ddbox i{font-size:10px;font-weight:700;color:#fff}
+.mol-ddhead{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 4px 8px;color:var(--mol-dim);font-size:13px}
+.mol-ddclear{background:none;border:0;color:var(--mol-fg);font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;opacity:.7;padding:0}
+.mol-ddclear:hover{opacity:1}
+.mol-ddclear:disabled{opacity:.3;cursor:default}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -248,7 +277,8 @@ const CSS = `
 .mol-more{display:flex;justify-content:center;padding:26px}
 .mol-actionbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 30px;border-top:1px solid var(--mol-border);background:var(--mol-panel)}
 .mol-detail{position:absolute;inset:0;background:var(--mol-bg);display:flex;z-index:5}
-.mol-newthumb{position:absolute;top:16px;right:16px;z-index:3;background:rgba(20,20,20,.75);backdrop-filter:blur(4px)}
+.mol-thumbbtns{position:absolute;top:16px;right:16px;z-index:3;display:flex;gap:8px}
+.mol-overbtn{background:rgba(20,20,20,.75);backdrop-filter:blur(4px)}
 .mol-preview{flex:1;display:flex;align-items:center;justify-content:center;background:#0f0f0f;position:relative;min-width:0}
 .mol-preview img,.mol-preview video{max-width:100%;max-height:100%;object-fit:contain}
 .mol-navarrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(40,40,40,.8);border:0;color:#fff;
@@ -303,7 +333,7 @@ const S = {
     kind: "all",          // all | image | video
     search: "",
     tags: new Set(),
-    family: "",
+    families: new Set(),    // Model Filter: several models can be ticked
     sort: loadPref("sort", "created-desc"),
     items: [],
     categories: [],
@@ -460,7 +490,7 @@ function filteredItems() {
         if (S.view === "recent" && new Date(it.added).getTime() < recentLimit) return false;
         if (S.view.startsWith("cat:") && it.category !== S.view.slice(4)) return false;
         if (S.kind !== "all" && it.kind !== S.kind) return false;
-        if (S.family && !familiesOf(it).includes(S.family)) return false;
+        if (S.families.size && !familiesOf(it).some((f) => S.families.has(f))) return false;
         if (S.tags.size) {
             const own = new Set((it.tags || []).map((t) => t.toLowerCase()));
             for (const t of S.tags) if (!own.has(t)) return false;
@@ -511,6 +541,9 @@ function groupWorks(items) {
     return works;
 }
 
+// Total size of a work: all its versions (and their companion files' share is ignored).
+const workSize = (w) => w.members.reduce((a, m) => a + (m.size || 0), 0);
+
 // Works with at least one version matching the filters, in the chosen order.
 function filteredWorks() {
     const works = groupWorks(filteredItems());
@@ -521,6 +554,8 @@ function filteredWorks() {
         "created-desc": (a, b) => latest(b, "created").localeCompare(latest(a, "created")),
         "created-asc": (a, b) => latest(a, "created").localeCompare(latest(b, "created")),
         "title": (a, b) => a.cover.title.localeCompare(b.cover.title),
+        "size-desc": (a, b) => workSize(b) - workSize(a),
+        "size-asc": (a, b) => workSize(a) - workSize(b),
     }[S.sort];
     return works.sort(by);
 }
@@ -631,7 +666,10 @@ async function setView(id) {
 // model whose last creations were just removed), so a filter never stays
 // active while the menu shows "All models".
 function pruneFilters() {
-    if (S.family && !allFamilies().includes(S.family)) S.family = "";
+    if (S.families.size) {
+        const all = new Set(allFamilies());
+        for (const f of [...S.families]) if (!all.has(f)) S.families.delete(f);
+    }
     if (S.tags.size) {
         const existing = new Set(allTags().map((t) => t.name.toLowerCase()));
         for (const t of [...S.tags]) if (!existing.has(t)) S.tags.delete(t);
@@ -640,15 +678,30 @@ function pruneFilters() {
 
 function render() {
     if (!S.dialog) return;
+    closeMenu();
     stopHoverVideos();
     pruneFilters();
     const root = S.dialog.querySelector(".mol-root");
     const scroll = root.querySelector(".mol-grid-wrap")?.scrollTop || 0;
     const reviewScroll = root.querySelector(".mol-review .mol-grid-wrap")?.scrollTop || 0;
+    // A re-render must not restart the video of the detail panel.
+    const oldVideo = root.querySelector(".mol-preview video");
+    const playback = oldVideo ? { src: oldVideo.getAttribute("src"), time: oldVideo.currentTime, paused: oldVideo.paused } : null;
     root.replaceChildren(renderNav(), renderMain());
     const wrap = root.querySelector(".mol-grid-wrap");
     if (wrap) wrap.scrollTop = scroll;
-    if (S.detail) root.querySelector(".mol-main").append(renderDetail());
+    if (S.detail) {
+        root.querySelector(".mol-main").append(renderDetail());
+        const video = root.querySelector(".mol-preview video");
+        if (video && playback && video.getAttribute("src") === playback.src) {
+            if (playback.paused) video.removeAttribute("autoplay");
+            const restore = () => {
+                video.currentTime = playback.time;
+                if (playback.paused) video.pause(); else video.play().catch(() => {});
+            };
+            if (video.readyState >= 1) restore(); else video.addEventListener("loadedmetadata", restore, { once: true });
+        }
+    }
     else if (S.review) {
         root.querySelector(".mol-main").append(renderReview());
         // Ticking or unticking a card keeps the Review list where it was.
@@ -761,6 +814,103 @@ function viewTitle() {
     return S.view.slice(4);
 }
 
+// ---------------------------------------------------------------- dropdowns
+// Menus styled like ComfyUI's own (Templates' Model Filter and sort menus):
+// a bordered 32 px trigger with a chevron, and a floating list with a check
+// mark (single choice) or check boxes (several choices). The browser's native
+// menus can't be styled, hence this.
+let openMenu = null;
+
+// A multi-choice menu stays open while ticking: re-open it after the re-render.
+function reopenMenu(title) {
+    const t = [...S.dialog.querySelectorAll(".mol-dd")].find((x) => x.title.startsWith("Show only creations") && title === "Model Filter");
+    t?.click();
+}
+
+function closeMenu() {
+    if (!openMenu) return;
+    openMenu.panel.remove();
+    document.removeEventListener("mousedown", openMenu.outside, true);
+    openMenu.trigger.classList.remove("open");
+    openMenu = null;
+}
+
+function dropdown({ label, iconName, options, value, values, onChange, title, multi = false, clearLabel = "Clear all" }) {
+    const text = () => {
+        if (!multi) return options.find((o) => o.value === value)?.label ?? label;
+        if (!values.size) return label;
+        if (values.size === 1) return options.find((o) => values.has(o.value))?.label ?? label;
+        return label;
+    };
+    const trigger = h("button", { class: "mol-dd", title: title || label, type: "button" },
+        iconName ? icon(iconName) : null,
+        h("span", { class: "mol-ddlabel" }, text()),
+        multi && values.size > 1 ? h("span", { class: "mol-ddcount" }, String(values.size)) : null,
+        h("i", { class: "pi pi-chevron-down mol-ddchev" }));
+    trigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (openMenu?.trigger === trigger) { closeMenu(); return; }
+        closeMenu();
+        const panel = h("div", { class: "mol-ddpanel" + (multi ? " multi" : "") });
+        let active = Math.max(0, options.findIndex((o) => (multi ? values.has(o.value) : o.value === value)));
+        const rows = options.map((o, i) => {
+            const on = multi ? values.has(o.value) : o.value === value;
+            const row = h("div", { class: "mol-dditem" + (on ? " on" : ""), role: "option" },
+                multi ? h("span", { class: "mol-ddbox" + (on ? " on" : "") }, on ? icon("check") : null) : null,
+                h("span", { class: "mol-ddtext" }, o.label),
+                o.hint ? h("span", { class: "mol-ddhint" }, o.hint) : null,
+                !multi && on ? h("span", { class: "mol-ddcheck" }, icon("check")) : null);
+            row.addEventListener("mousedown", (ev) => ev.preventDefault());
+            row.addEventListener("click", () => choose(i));
+            row.addEventListener("mouseenter", () => highlight(i));
+            return row;
+        });
+        const highlight = (i) => { active = i; rows.forEach((r, k) => r.classList.toggle("hl", k === i)); rows[i]?.scrollIntoView({ block: "nearest" }); };
+        const choose = (i) => {
+            const o = options[i];
+            if (!o) return;
+            if (multi) {
+                values.has(o.value) ? values.delete(o.value) : values.add(o.value);
+                onChange(values);
+            } else {
+                closeMenu();
+                onChange(o.value);
+            }
+        };
+        if (multi) {
+            panel.append(h("div", { class: "mol-ddhead" },
+                h("span", {}, values.size ? `${values.size} selected` : "None selected"),
+                h("button", { class: "mol-ddclear", type: "button", disabled: !values.size,
+                    onclick: () => { values.clear(); onChange(values); } }, clearLabel)));
+        }
+        panel.append(h("div", { class: "mol-ddlist" }, ...rows));
+        panel.tabIndex = -1;
+        panel.addEventListener("keydown", (ev) => {
+            if (ev.key === "ArrowDown") { ev.preventDefault(); highlight(Math.min(options.length - 1, active + 1)); }
+            else if (ev.key === "ArrowUp") { ev.preventDefault(); highlight(Math.max(0, active - 1)); }
+            else if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); choose(active); }
+            else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeMenu(); trigger.focus(); }
+            ev.stopPropagation();
+        });
+        S.dialog.append(panel);
+        const r = trigger.getBoundingClientRect();
+        const d = S.dialog.getBoundingClientRect();
+        panel.style.minWidth = Math.max(r.width, 180) + "px";
+        const top = r.bottom - d.top + 6;
+        panel.style.top = top + "px";
+        panel.style.maxHeight = Math.max(160, d.height - top - 16) + "px";
+        const left = Math.min(r.left - d.left, d.width - panel.offsetWidth - 12);
+        panel.style.left = Math.max(12, left) + "px";
+        const outside = (ev) => { if (!panel.contains(ev.target) && !trigger.contains(ev.target)) closeMenu(); };
+        document.addEventListener("mousedown", outside, true);
+        openMenu = { panel, trigger, outside };
+        trigger.classList.add("open");
+        highlight(active);
+        panel.focus({ preventScroll: true });
+    });
+    return trigger;
+}
+
 // The banner opens by itself when a suggestion appears that wasn't there before;
 // closing it is remembered otherwise.
 function syncVersionBanner() {
@@ -801,16 +951,18 @@ function renderMain() {
         chip("audio", "Audio", "volume-up")];
     if (!isOutput) {
         const families = allFamilies();
-        const modelSel = h("label", { class: "mol-filtersel", title: "Show only creations made with this model" },
-            h("select", { onchange: (e) => { S.family = e.target.value; render(); } },
-                h("option", { value: "" }, "Model Filter"),
-                ...families.map((m) => h("option", { value: m, selected: S.family === m }, m))));
-        const sortSel = h("select", { title: "Sort order",
-            onchange: (e) => { S.sort = e.target.value; savePref("sort", S.sort); render(); } },
-            ...[["created-desc", "Newest created"], ["created-asc", "Oldest created"], ["added-desc", "Newest added"],
-                ["added-asc", "Oldest added"], ["title", "Title"]]
-                .map(([v, l]) => h("option", { value: v, selected: S.sort === v }, l)));
-        const sortBox = h("label", { class: "mol-filtersel", title: "Sort order" }, icon("sort-alt"), sortSel);
+        const modelSel = dropdown({
+            label: "Model Filter", multi: true, values: S.families, title: "Show only creations made with these models",
+            options: families.map((m) => ({ value: m, label: m })),
+            onChange: () => { S.suggestionIndex = 0; render(); reopenMenu("Model Filter"); },
+        });
+        const sortBox = dropdown({
+            iconName: "sort-alt", value: S.sort, title: "Sort order",
+            options: [["created-desc", "Newest created"], ["created-asc", "Oldest created"], ["added-desc", "Newest added"],
+                ["added-asc", "Oldest added"], ["size-desc", "Largest first"], ["size-asc", "Smallest first"], ["title", "Title"]]
+                .map(([v, l]) => ({ value: v, label: l })),
+            onChange: (v) => { S.sort = v; savePref("sort", S.sort); render(); },
+        });
         const nSug = visibleSuggestions().length;
         const detectBtn = h("button", {
             class: "mol-chip" + (S.versionsOpen ? " active" : ""),
@@ -879,16 +1031,18 @@ const SIMILARITY = [
 ];
 
 function similaritySelect() {
-    const sel = h("select", { class: "mol-select", title: "How alike creations must look (or sound) to be suggested as versions",
-        onchange: async () => {
-            S.similarity = sel.value;
+    const sel = dropdown({
+        value: S.similarity, title: "How alike creations must look (or sound) to be suggested as versions",
+        options: SIMILARITY.map(([v, label, tip]) => ({ value: v, label, hint: tip })),
+        onChange: async (v) => {
+            S.similarity = v;
             savePref("similarity", S.similarity);
             S.suggestionIndex = 0;
             await loadSuggestions();
             render();
-        } },
-    ...SIMILARITY.map(([v, label, tip]) => h("option", { value: v, title: tip, selected: S.similarity === v }, label)));
-    return h("label", { class: "mol-simlabel" }, "Similarity", sel);
+        },
+    });
+    return h("span", { class: "mol-simlabel" }, "Similarity", sel);
 }
 
 function renderSuggestion() {
@@ -1141,8 +1295,10 @@ function renderItemGrid() {
         if (it.category) chips.push(h("span", { class: "mol-tag" }, icon("folder"), it.category));
         (it.tags || []).slice(0, 2).forEach((t) => chips.push(h("span", { class: "mol-tag" }, t)));
         if ((it.tags || []).length > 2) chips.push(h("span", { class: "mol-tag" }, `+${it.tags.length - 2}`));
+        const size = workSize(w);
         grid.append(h("div", {
-            class: "mol-card", onclick: () => openDetail("item", works, index),
+            class: "mol-card", title: (n > 1 ? `${n} versions, ` : "") + fmtSize(size),
+            onclick: () => openDetail("item", works, index),
         }, thumb, h("div", { class: "mol-cardtitle", title: it.title }, it.title), h("div", { class: "mol-cardtags" }, chips)));
     });
     wrap.append(grid);
@@ -1682,8 +1838,33 @@ function previewEl(kind, src, thumb) {
         : h("img", { src, draggable: "false" });
 }
 
+// New thumbnail (and Reset thumbnail, only once one was chosen) over the player.
+// They update the page in place, so the video keeps playing or stays paused.
+function thumbButtons(it, preview) {
+    const box = h("div", { class: "mol-thumbbtns" });
+    const fill = () => {
+        box.replaceChildren(
+            it.thumb_custom ? h("button", { class: "mol-btn mol-overbtn", title: "Back to the automatic thumbnail",
+                onclick: () => resetThumbnail(it, fill, preview) }, icon("replay"), "Reset thumbnail") : null,
+            h("button", { class: "mol-btn mol-overbtn", title: "Use the frame shown in the player as this video's thumbnail",
+                onclick: (e) => newThumbnail(it, preview.querySelector("video"), e.currentTarget, fill, preview) }, icon("camera"), "New thumbnail"));
+    };
+    fill();
+    return box;
+}
+
+// Show the new thumbnail wherever this creation appears in the open panel.
+function refreshThumbImages(it, preview) {
+    const src = itemThumb(it);
+    const strip = preview?.querySelectorAll(".mol-stripitem img") || [];
+    const work = S.detail?.list?.[S.detail.index];
+    (work?.members || []).forEach((m, i) => { if (m.id === it.id && strip[i]) strip[i].src = src; });
+    if (work) work.members = work.members.map((m) => (m.id === it.id ? it : m));
+    if (work?.cover?.id === it.id) work.cover = it;
+}
+
 // Thumbnail from the frame shown in the player (paused or playing).
-async function newThumbnail(it, video, btn) {
+async function newThumbnail(it, video, btn, refill, preview) {
     if (!video || !video.videoWidth) { toast("New thumbnail", "The video isn't loaded yet", "warn"); return; }
     const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement("canvas");
@@ -1694,6 +1875,9 @@ async function newThumbnail(it, video, btn) {
     try {
         const res = await call("/item/thumbnail", { id: it.id, image: canvas.toDataURL("image/jpeg", 0.92), time: video.currentTime });
         applyItemUpdate(res.item);
+        Object.assign(it, res.item);
+        refreshThumbImages(it, preview);
+        refill?.();
         const work = it.work_id && S.items.filter((x) => x.work_id === it.work_id).length > 1;
         toast("New thumbnail", work && !res.item.work_cover
             ? `Taken at ${video.currentTime.toFixed(1)} s. This version isn't the cover: use Set as cover to show it on the card.`
@@ -1702,18 +1886,20 @@ async function newThumbnail(it, video, btn) {
         toast("Could not set the thumbnail", e.message, "error");
     }
     if (btn) btn.disabled = false;
-    refreshDetailWork(it.id);
 }
 
-async function resetThumbnail(it) {
+async function resetThumbnail(it, refill, preview) {
     try {
         const res = await call("/item/thumbnail", { id: it.id, reset: true });
         applyItemUpdate(res.item);
+        for (const k of Object.keys(it)) if (!(k in res.item)) delete it[k];
+        Object.assign(it, res.item);
+        refreshThumbImages(it, preview);
+        refill?.();
         toast("Thumbnail reset", it.title);
     } catch (e) {
         toast("Could not reset the thumbnail", e.message, "error");
     }
-    refreshDetailWork(it.id);
 }
 
 function applyItemUpdate(item) {
@@ -1760,10 +1946,7 @@ function renderDetail() {
         list.length > 1 ? h("button", { class: "mol-navarrow", style: { left: "16px" }, title: "Previous (←)", onclick: () => moveDetail(-1) }, icon("chevron-left")) : null,
         list.length > 1 ? h("button", { class: "mol-navarrow", style: { right: "16px" }, title: "Next (→)", onclick: () => moveDetail(1) }, icon("chevron-right")) : null,
         strip);
-    if (isItem && entry.kind === "video") {
-        preview.append(h("button", { class: "mol-btn mol-newthumb", title: "Use the frame shown in the player as this video's thumbnail",
-            onclick: (e) => newThumbnail(entry, preview.querySelector("video"), e.currentTarget) }, icon("camera"), "New thumbnail"));
-    }
+    if (isItem && entry.kind === "video") preview.append(thumbButtons(entry, preview));
 
     const info = h("aside", { class: "mol-info" });
     const headTitle = h("div", { style: { fontWeight: 600, flex: 1 } }, `${index + 1} / ${list.length}`,
@@ -1903,12 +2086,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         } catch (e) { toast("Could not remove", e.message, "error"); }
     } }, icon("trash"), h("span", {}, versioned ? `Remove v${ver + 1}` : "Remove"));
 
-    const thumbButtons = it.thumb_custom ? [
-        h("button", { class: "mol-btn", title: "Back to the automatic thumbnail",
-            onclick: () => resetThumbnail(it) }, icon("replay"), "Reset thumbnail"),
-    ] : [];
-
-    const versionButtons = versioned ? [
+        const versionButtons = versioned ? [
         h("button", { class: "mol-btn", disabled: !!it.work_cover, title: "Show this version on the card",
             onclick: async () => { await versionAction("cover", { id: it.id }); refreshDetailWork(it.id); } },
         icon("image"), it.work_cover ? "Cover" : "Set as cover"),
@@ -1929,7 +2107,6 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
             icon("sitemap"), "Load workflow"),
         it.summary?.positive?.length ? h("button", { class: "mol-btn", onclick: () => copyText(it.summary.positive.join("\n\n")) }, icon("copy"), "Copy prompt") : null,
         h("a", { class: "mol-btn", href: itemFile(it, { download: 1 }), title: "Download" }, icon("download")),
-        ...thumbButtons,
         ...versionButtons,
         removeBtn,
         saved));
