@@ -209,8 +209,11 @@ const CSS = `
 .mol-dupgroup>.mol-row{margin-bottom:10px}
 .mol-dupcopy .mol-thumb{opacity:.6}
 .mol-jobbar{gap:12px}
-.mol-jobtext{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
-.mol-jobtrack{flex:1;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden;min-width:80px}
+.mol-jobtext{white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+.mol-jobname{flex:1;min-width:0;display:flex;color:var(--mol-dim);white-space:nowrap}
+.mol-jobhead{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mol-jobtail{flex:none}
+.mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden}
 .mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
@@ -1383,11 +1386,16 @@ async function runJob(label, list, size, send) {
 function renderJobProgress() {
     const job = S.job;
     if (!job) return null;
+    // Fixed layout: counter, file name (cut in the middle when too long, since
+    // names of one series differ by their end), then a bar of fixed width.
     job.text = h("span", { class: "mol-jobtext" });
+    job.head = h("span", { class: "mol-jobhead" });
+    job.tail = h("span", { class: "mol-jobtail" });
+    job.name = h("span", { class: "mol-jobname" }, job.head, job.tail);
     job.bar = h("span", { class: "mol-jobfill" });
     job.btn = h("button", { class: "mol-btn", onclick: () => { job.cancel = true; updateJobProgress(); } }, "Cancel");
     job.el = h("div", { class: "mol-actionbar mol-jobbar" },
-        h("i", { class: "pi pi-spin pi-spinner" }), job.text,
+        h("i", { class: "pi pi-spin pi-spinner" }), job.text, job.name,
         h("span", { class: "mol-jobtrack" }, job.bar), job.btn);
     updateJobProgress();
     return job.el;
@@ -1399,7 +1407,12 @@ function updateJobProgress() {
     const name = typeof job.next === "string" ? "" : (job.next?.rel || job.next?.name || "").split("/").pop();
     job.text.textContent = job.cancel
         ? `${job.label}: stopping after the current file (${job.done} / ${job.total})`
-        : `${job.label}: ${job.done} / ${job.total}` + (name && job.done < job.total ? ` · ${name}` : "");
+        : `${job.label}: ${job.done} / ${job.total}`;
+    const shown = !job.cancel && job.done < job.total ? name : "";
+    const cut = shown.length > 24 ? shown.length - 14 : shown.length;
+    job.head.textContent = shown.slice(0, cut);
+    job.tail.textContent = shown.slice(cut);
+    job.name.title = shown;
     job.bar.style.width = (job.total ? (100 * job.done) / job.total : 0) + "%";
     job.btn.disabled = job.cancel;
 }
