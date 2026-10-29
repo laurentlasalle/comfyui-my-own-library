@@ -639,7 +639,8 @@ function render() {
         root.querySelector(".mol-main").append(renderReview());
         // Ticking or unticking a card keeps the Review list where it was.
         const rwrap = root.querySelector(".mol-review .mol-grid-wrap");
-        if (rwrap) rwrap.scrollTop = reviewScroll;
+        if (rwrap) rwrap.scrollTop = S.review.fresh ? 0 : reviewScroll;
+        S.review.fresh = false;
     }
     // Re-rendering removes the focused element; keep keyboard focus inside the
     // window so Esc and the arrows keep working and ComfyUI shortcuts don't fire.
@@ -902,7 +903,7 @@ function renderSuggestion() {
             onclick: () => { S.suggestionIndex = (S.suggestionIndex + 1) % list.length; render(); } },
         `${S.suggestionIndex + 1} of ${list.length}`, icon("chevron-right")) : null,
         h("button", { class: "mol-btn", title: "See them in large thumbnails and choose which to group",
-            onclick: () => { S.review = { sug, checked: new Set(sug.ids), zoom: null }; render(); } },
+            onclick: () => { S.review = { sug, checked: new Set(sug.ids), zoom: null, skipped: new Set() }; render(); } },
         icon("eye"), "Review"),
         h("button", { class: "mol-btn", onclick: async () => {
             await versionAction("dismiss", { workflow_id: sug.workflow_id, ids: sug.ids });
@@ -914,8 +915,31 @@ function renderSuggestion() {
 
 // Review panel: the suggested creations in large thumbnails, all ticked;
 // untick the ones that don't belong, then group the rest.
+// Review goes through the suggestions one after the other: after grouping or
+// "Not the same work", the next one opens; Skip leaves one for later.
+const sugKey = (sug) => sug.workflow_id + ":" + [...sug.ids].sort().join(",");
+
+function reviewNext(fromKey) {
+    const R = S.review;
+    const skipped = R?.skipped || new Set();
+    const list = visibleSuggestions();
+    const at = list.findIndex((x) => sugKey(x) === fromKey);
+    // Next one after the current position, then from the start.
+    const order = at >= 0 ? [...list.slice(at + 1), ...list.slice(0, at)] : list;
+    const next = order.find((x) => !skipped.has(sugKey(x)) && sugKey(x) !== fromKey);
+    if (!next) {
+        S.review = null;
+        toast("All suggestions reviewed", skipped.size ? `${skipped.size} skipped for later` : "");
+    } else {
+        S.review = { sug: next, checked: new Set(next.ids), zoom: null, skipped, fresh: true };
+    }
+    render();
+}
+
 function renderReview() {
     const R = S.review;
+    const list = visibleSuggestions();
+    const pos = list.findIndex((x) => sugKey(x) === sugKey(R.sug));
     const items = R.sug.ids.map((id) => S.items.find((x) => x.id === id)).filter(Boolean).sort(byCreated);
     const n = items.filter((it) => R.checked.has(it.id)).length;
     const close = () => { S.review = null; render(); };
@@ -961,24 +985,29 @@ function renderReview() {
         h("div", { class: "mol-head" },
             h("div", { class: "mol-row" },
                 h("button", { class: "mol-iconbtn", title: "Back (Esc)", onclick: close }, icon("arrow-left")),
-                h("div", { class: "mol-title" }, `${items.length} similar creations from the same workflow`),
+                h("div", { class: "mol-title" }, (list.length > 1 && pos >= 0 ? `Suggestion ${pos + 1} of ${list.length} · ` : "")
+                    + `${items.length} similar creations from the same workflow`),
                 h("span", { class: "mol-hint", style: { margin: 0 } }, "Untick the ones that are not versions of this work."))),
         h("div", { class: "mol-grid-wrap" }, h("div", { class: "mol-grid mol-reviewgrid" }, ...cards)),
         h("div", { class: "mol-actionbar" },
             h("button", { class: "mol-btn", onclick: close }, "Cancel"),
             h("span", { class: "mol-spacer" }),
+            list.length > 1 ? h("button", { class: "mol-btn", title: "Decide later: go to the next suggestion",
+                onclick: () => { R.skipped.add(sugKey(R.sug)); reviewNext(sugKey(R.sug)); } }, "Skip", icon("chevron-right")) : null,
             h("button", { class: "mol-btn", onclick: async () => {
+                const key = sugKey(R.sug);
                 await versionAction("dismiss", { workflow_id: R.sug.workflow_id, ids: R.sug.ids });
-                close();
+                reviewNext(key);
             } }, "Not the same work"),
             groupBtn = h("button", { class: "mol-btn primary", disabled: n < 2, onclick: async () => {
                 const ids = items.filter((it) => R.checked.has(it.id)).map((it) => it.id);
                 const workflowId = R.sug.workflow_id;
                 const shownIds = R.sug.ids;
-                S.review = null;
+                const key = sugKey(R.sug);
                 await groupIds(ids);
                 // The left-out creations stay separate; don't suggest them again.
-                if (ids.length < items.length) { await versionAction("dismiss", { workflow_id: workflowId, ids: shownIds }); render(); }
+                if (ids.length < items.length) await versionAction("dismiss", { workflow_id: workflowId, ids: shownIds });
+                reviewNext(key);
             } }, icon("clone"), groupLabel(n))));
 
     if (R.zoom) {

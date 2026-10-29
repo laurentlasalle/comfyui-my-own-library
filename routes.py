@@ -48,7 +48,7 @@ class Job:
         info = body.get("job") or {}
         self.id = str(info.get("id") or "")
         self.start = int(info.get("start") or 0)
-        self.total = int(info.get("total") or 0)
+        self.total = int(info.get("total") or len(body.get("files") or body.get("ids") or []))
         self.last = bool(info.get("last", True))
         self.verb = verb
         state = _jobs.get(self.id) if self.id else None
