@@ -215,6 +215,7 @@ const CSS = `
 .mol-jobtail{flex:none}
 .mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden}
 .mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
+.mol-chipcount{margin-left:6px;padding:0 7px;border-radius:9px;background:var(--mol-accent);color:#1b1b1b;font-size:12px;font-weight:700;line-height:18px}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -303,6 +304,7 @@ const S = {
     bulkTags: [],
     suggestions: [],        // creations from one workflow, not grouped yet
     similarity: loadPref("similarity", "normal"),  // strict | normal | loose
+    versionsOpen: loadPref("versionsOpen", "1") === "1",  // Detect versions banner shown
     suggestionIndex: 0,
     review: null,           // {sug, checked: Set, zoom: id|null}: suggestion being reviewed
     hideAdded: false,
@@ -744,7 +746,22 @@ function viewTitle() {
     return S.view.slice(4);
 }
 
+// The banner opens by itself when a suggestion appears that wasn't there before;
+// closing it is remembered otherwise.
+function syncVersionBanner() {
+    if (S.view === "output" || S.view === "duplicates") return;
+    let seen;
+    try { seen = new Set(JSON.parse(localStorage.getItem("my_own_library.seenSuggestions") || "[]")); } catch { seen = new Set(); }
+    const keys = visibleSuggestions().map((sug) => sug.workflow_id + ":" + [...sug.ids].sort().join(","));
+    const fresh = keys.filter((k) => !seen.has(k));
+    if (!fresh.length) return;
+    S.versionsOpen = true;
+    savePref("versionsOpen", "1");
+    try { localStorage.setItem("my_own_library.seenSuggestions", JSON.stringify([...seen, ...fresh].slice(-500))); } catch { /* per-browser only */ }
+}
+
 function renderMain() {
+    syncVersionBanner();
     const isOutput = S.view === "output";
     const searchInput = h("input", {
         type: "text", placeholder: isOutput ? "Search file names" : "Search titles, prompts, notes, tags",
@@ -777,7 +794,13 @@ function renderMain() {
             ...[["created-desc", "Newest created"], ["created-asc", "Oldest created"], ["added-desc", "Newest added"],
                 ["added-asc", "Oldest added"], ["title", "Title"]]
                 .map(([v, l]) => h("option", { value: v, selected: S.sort === v }, l)));
-        filters.push(h("span", { class: "mol-spacer" }), modelSel, sortSel);
+        const nSug = visibleSuggestions().length;
+        const detectBtn = h("button", {
+            class: "mol-chip" + (S.versionsOpen ? " active" : ""),
+            title: "Show or hide the suggestions of creations to group as versions, and how alike they must be",
+            onclick: () => { S.versionsOpen = !S.versionsOpen; savePref("versionsOpen", S.versionsOpen ? "1" : "0"); render(); },
+        }, icon("clone"), "Detect versions", nSug ? h("span", { class: "mol-chipcount" }, String(nSug)) : null);
+        filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortSel);
     } else {
         filters.push(h("button", {
             class: "mol-chip" + (S.newOnly ? " active" : ""), title: "Only files created since your previous visit of this view",
@@ -852,16 +875,16 @@ function similaritySelect() {
 }
 
 function renderSuggestion() {
-    if (S.view === "output") return null;
+    if (S.view === "output" || !S.versionsOpen) return null;
     const list = visibleSuggestions();
     const pending = S.sigPending ? `${S.sigPending} creation${S.sigPending > 1 ? "s" : ""} still being analyzed for similarity.` : "";
+    const closeBtn = h("button", { class: "mol-iconbtn", title: "Hide (Detect versions button to show again)",
+        onclick: () => { S.versionsOpen = false; savePref("versionsOpen", "0"); render(); } }, icon("times"));
     if (!list.length) {
-        // Keep the setting reachable when the current level finds nothing.
-        if (S.similarity === "normal" && !pending) return null;
         return h("div", { class: "mol-suggestion mol-suggestion-empty" },
-            h("span", { class: "mol-hint", style: { margin: 0 } }, pending || "No version suggestions at this similarity level."),
+            h("span", { class: "mol-hint", style: { margin: 0 } }, pending || "No version suggestions at this level."),
             h("span", { class: "mol-spacer" }),
-            similaritySelect());
+            similaritySelect(), closeBtn);
     }
     if (S.suggestionIndex >= list.length) S.suggestionIndex = 0;
     const sug = list[S.suggestionIndex];
@@ -885,7 +908,8 @@ function renderSuggestion() {
             await versionAction("dismiss", { workflow_id: sug.workflow_id, ids: sug.ids });
             render();
         } }, "Not the same work"),
-        h("button", { class: "mol-btn primary", onclick: () => groupIds(sug.ids) }, icon("clone"), "Group as versions"));
+        h("button", { class: "mol-btn primary", onclick: () => groupIds(sug.ids) }, icon("clone"), "Group as versions"),
+        closeBtn);
 }
 
 // Review panel: the suggested creations in large thumbnails, all ticked;
