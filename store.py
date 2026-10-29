@@ -26,6 +26,7 @@ from datetime import datetime
 from . import metadata as md
 from . import similarity as sim
 from . import dupes
+from .version import __version__
 
 THUMB_SIZE = 512
 THUMB_VERSION = 2  # 2: video thumbnails skip black first frames
@@ -423,6 +424,7 @@ class Library:
                      for i in items]
             return {
                 "library_dir": self.dir,
+                "version": __version__,
                 "categories": list(self.data["categories"]),
                 "items": items,
                 "duplicates": self.duplicates(),

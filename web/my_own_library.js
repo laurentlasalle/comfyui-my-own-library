@@ -258,6 +258,7 @@ const CSS = `
 .mol-ddclear{background:none;border:0;color:var(--mol-fg);font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;opacity:.7;padding:0}
 .mol-ddclear:hover{opacity:1}
 .mol-ddclear:disabled{opacity:.3;cursor:default}
+.mol-version{margin-bottom:4px;color:var(--mol-dim)}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -363,6 +364,7 @@ function applySnapshot(data) {
     S.items = data.items || [];
     S.categories = data.categories || [];
     S.libraryDir = data.library_dir || "";
+    S.version = data.version || "";
     S.duplicates = data.duplicates || [];
 }
 
@@ -801,6 +803,7 @@ function renderNav() {
                 onclick: () => { S.editingCategory = ""; render(); } }, icon("plus"))),
         ...cats,
         h("div", { class: "mol-navfoot", title: "Change it in ComfyUI/user/my_own_library.config.json" },
+            S.version ? h("div", { class: "mol-version" }, `My Own Library ${S.version}`) : null,
             "Library folder: ", S.libraryDir));
 }
 

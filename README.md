@@ -126,6 +126,10 @@ Only the nodes that contributed to the file are considered: the library finds th
 
 Prompts are traced from each sampler's *positive* and *negative* inputs, following only the matching branch through nodes that carry both (PainterI2V, WanImageToVideo, ControlNet and similar). Seeds of samplers with **add_noise** disabled are ignored, since they are not used. Creations added with an older version are recalculated automatically the next time the library opens.
 
+## Versions
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version, and the Releases page of the repository. The installed version is shown at the bottom of the left column and in the terminal when ComfyUI starts.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
