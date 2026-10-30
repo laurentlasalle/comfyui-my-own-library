@@ -2,6 +2,14 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.9.0 (2026-10-30)
+
+- Segments of combined videos (Easy-Media projects read from their project.json; other tools by length, timing and first frame): **Combined from N parts** / **Part 2 of 4** on the Output cards, **Hide parts** (on by default), and **Delete parts** once the final video is in the library, with a confirmation listing every file and its size. Segments no longer count in the new files badge.
+- **Library directory** setting: move the library to another folder (verified copy, then the old folder is deleted) or use a folder as it is, without restarting. The folder at the bottom of the left column opens the setting.
+- Settings grouped in two sections, **Options** and **File Management**.
+- Model families: **Krea 2** (file names and its own nodes) and **FLUX.1 Krea**. Utility nodes (empty latents, ModelSampling) no longer suggest a family, which gave a wrong "SD3". Official model files of ComfyUI's templates are recognized exactly. Existing creations are recalculated.
+- The **Model** field suggests the models known to ComfyUI's Browse Templates, in addition to the library's families.
+
 ## 0.8.0 (2026-10-29)
 
 - Version suggestions across workflows: creations made from the same source file (Load Image of image-to-image workflows) are related like those of one workflow; at the Loose level, near-identical creations (92 % or more) are suggested whatever their origin. The banner says why.

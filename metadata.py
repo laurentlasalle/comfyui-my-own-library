@@ -388,7 +388,7 @@ def _is_ref(value):
             and isinstance(value[0], (str, int)) and isinstance(value[1], int))
 
 
-SUMMARY_VERSION = 6  # 6: "sources" (files loaded by Load Image / Load Video nodes)
+SUMMARY_VERSION = 7  # 6: "sources"; 7: Krea 2, no family guessed from utility nodes
 
 # Inputs whose value is never the main diffusion model, ignored for family detection
 # unless nothing else matched.
@@ -405,8 +405,10 @@ FAMILY_RULES = [
     (r"wan[ ._-]?2[ ._-]?2|wan22", "Wan 2.2"),
     (r"wan[ ._-]?2[ ._-]?1|wan21", "Wan 2.1"),
     (r"(^|[^a-z])wan", "Wan"),
+    (r"krea[ ._-]?2", "Krea 2"),
     (r"flux[ ._-]?2|flux2", "FLUX.2"),
     (r"kontext", "FLUX.1 Kontext"),
+    (r"flux.*krea|krea.*flux|krea[ ._-]?dev", "FLUX.1 Krea"),
     (r"flux", "FLUX.1"),
     (r"qwen[ ._-]?image[ ._-]?edit", "Qwen Image Edit"),
     (r"qwen[ ._-]?image[ ._-]?2[ ._-]?1", "Qwen Image 2.1"),
@@ -434,6 +436,7 @@ FAMILY_RULES = [
 
 # Node class names that betray a family when no file name does.
 CLASS_RULES = [
+    (r"krea2", "Krea 2"),
     (r"minimaxh3", "MiniMax H3"),
     (r"chatterbox", "Chatterbox"),
     (r"seedvr2", "SeedVR2"),
@@ -453,6 +456,18 @@ CLASS_RULES = [
     (r"sd3", "SD3"),
     (r"sdxl", "SDXL"),
 ]
+
+
+UTILITY_CLASS = re.compile(r"^empty.*latent|latent.*image$|^modelsampling|^cfg|^sampler|^scheduler", re.I)
+
+
+def _template_family(base):
+    """Family of an official model file, as listed by ComfyUI's templates."""
+    try:
+        from .templates import known
+        return known()["files"].get(base.lower())
+    except Exception:
+        return None
 
 
 def _match_family(names, rules):
@@ -535,7 +550,8 @@ def detect_families(prompt, filename=None, workflow=None, dist=None):
             lkey = key.lower()
             base = os.path.basename(value.replace("\\", "/"))
             if lkey in PRIMARY_MODEL_KEYS or (lkey.endswith("_name") and not any(x in lkey for x in SECONDARY_MODEL_KEYS)):
-                label = _match_family([base], FAMILY_RULES) or _match_family([base], [(r"xl", "SDXL")])
+                label = _match_family([base], FAMILY_RULES) or _template_family(base) \
+                    or _match_family([base], [(r"xl", "SDXL")])
                 if label:
                     rank = (dist.get(k, 0), -order.get(k, 0))
                     if label not in found or rank > found[label]:
@@ -547,7 +563,12 @@ def detect_families(prompt, filename=None, workflow=None, dist=None):
         for k in keys:
             node = prompt.get(k)
             if isinstance(node, dict):
-                label = _match_family([str(node.get("class_type", ""))], CLASS_RULES)
+                cls = str(node.get("class_type", ""))
+                # Utility nodes reused by many models say nothing about the model
+                # (EmptySD3LatentImage is used by Krea 2, Qwen Image, Z-Image...).
+                if UTILITY_CLASS.search(cls):
+                    continue
+                label = _match_family([cls], CLASS_RULES)
                 if label:
                     rank = (dist.get(k, 0), -order.get(k, 0))
                     if label not in found or rank > found[label]:

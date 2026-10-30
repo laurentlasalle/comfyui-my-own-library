@@ -445,6 +445,8 @@ class Library:
         return files
 
     def _save(self):
+        if getattr(self, "closed", False):
+            return  # this folder is no longer the library (moved or switched)
         _atomic_write_json(self.db_path, self.data)
 
     # ------------------------------------------------------------- queries
@@ -558,7 +560,14 @@ class Library:
     def count_new(self):
         """Output files created since the last visit and not yet in the library."""
         since = self.output_seen()
-        return sum(1 for f in self.list_root("output") if f["mtime"] > since and not f["in_library"])
+        files = self.list_root("output")
+        try:
+            # Segments of combined videos don't count: only the final video does.
+            from . import parts
+            parts.annotate(self.roots["output"], files)
+        except Exception:
+            pass
+        return sum(1 for f in files if f["mtime"] > since and not f["in_library"] and not f.get("part"))
 
     def root_path(self, root, rel):
         base = self.roots.get(root)

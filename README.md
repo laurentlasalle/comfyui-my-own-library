@@ -42,7 +42,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Create, rename or delete a category | The **+** next to *Categories*; hover a category for the pencil and trash icons. Deleting a category never deletes creations, they become *Uncategorized*. |
 | Edit a creation | Click its card. Title, category, model, tags and notes save automatically. |
 | Tags | Type a few letters: matching tags appear, most used first. **↑** / **↓** to choose, **Enter** or **Tab** to take one, **Esc** to close the list. **Enter** on text that matches nothing creates a new tag. |
-| Correct the model families | In a creation's detail panel, type in **Model**; several families are separated with commas, in order of execution. Leave it empty to use the detected list. |
+| Correct the model families | In a creation's detail panel, type in **Model**: the suggestions list the families of your library first, then every model known to this library and to ComfyUI's Browse Templates. Several families are separated with commas, in order of execution. Leave it empty to use the detected list. |
 | Sort new generations | When the sidebar icon shows a number, click it: the Output view opens on the new files (**New since last visit**). Toggle that filter off to see everything. |
 | Search | Type in **Search ...**; the icon at the right of the field, or **Esc**, clears it (a second **Esc** closes the window). |
 | Sort | The menu with the ⇅ icon, next to **Model Filter**: newest or oldest created (default: newest created), newest or oldest added, largest or smallest first (a work counts the size of all its versions; hover a card to see it), or title. Your choice is remembered. |
@@ -60,6 +60,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Merge duplicates | **Duplicates** in the left column (shown only when there are some). **Keep one** keeps a single creation per group: a version of a work if one of the copies is in a work, otherwise the first added. It gets the tags and notes of all the copies, stays a favorite if any copy was, and takes the oldest creation date. The other copies leave the library; files in `output` are not touched. **Keep one of each** does it for every group, after confirmation. |
 | Follow a long operation | Adding, moving, deleting from output and removing from the library are done one file at a time. A progress bar replaces the action bar (other actions wait until it ends), with **Cancel** to stop after the current file; what is already done stays done. ComfyUI's terminal shows each file (`[My Own Library] Added 37/240: ...`) and a summary at the end. The Output view then refreshes with the files left, keeping the current filters and search. |
 | Video thumbnail | Pause the video on the frame you want (or move along its timeline) and click **New thumbnail** at the top right of the player. **Reset thumbnail**, next to it once a thumbnail was chosen, goes back to the automatic one. The video keeps playing (or stays paused). A chosen thumbnail is never replaced automatically. |
+| Segments of combined videos | Videos made of several segments (Easy-Media projects, or segments followed by a video whose length is their sum) are recognized in the Output view: the final video shows **Combined from N parts**, each segment **Part 2 of 4**. **Hide parts** (on by default) hides the segments. Once the final video is in your library, **Delete parts** lists the files that can go (segments and, for Easy-Media, their context latents), grouped by final video with their size, and deletes them after confirmation. The project's `project.json` and `out/` folder are always kept. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
 | Work on several creations | Tick cards (checkbox on hover) or use **Select all shown** for the whole current view, then **Move to category**, **Add tags**, **Remove N from library** (a card with versions is removed with all its versions, after confirmation) or **Group as versions**. |
 
@@ -88,13 +89,14 @@ The signature of each creation is computed when you add it. Creations added befo
 
 My Own Library has its own section in ComfyUI's **Settings** (gear icon), saved in your ComfyUI user profile:
 
-| Setting | Default | What it does |
-|---|---|---|
-| Center thumbnails on faces | On | When a picture has a single face, the square crop of the grid is centered on it; portrait pictures are framed on their upper third. |
-| Play videos on hover | On | Muted preview when the mouse is over a video card. |
-| New files badge | On | Number of new output files on the library icon. |
-| Remove from output after adding (default) | Off | Whether that box is ticked when the library opens. |
-| Similarity of version suggestions | Normal | Strict, Normal or Loose; also changed from the Detect versions banner. |
+| Section | Setting | Default | What it does |
+|---|---|---|---|
+| Options | New files badge on sidebar | On | Number of new output files on the library icon. |
+| Options | Play videos on hover | On | Muted preview when the mouse is over a video card. |
+| Options | Center thumbnails on faces | On | When a picture has a single face, the square crop of the grid is centered on it; portrait pictures are framed on their upper third. |
+| Options | Similarity of version suggestions (default) | Normal | Strict, Normal or Loose; also changed from the Detect versions banner. |
+| File Management | Library directory | `ComfyUI/user/my_own_library` | Where the library keeps its copies and data (see below). |
+| File Management | Remove from output after adding (default) | Off | Whether that box is ticked when the library opens. |
 
 Faces are found with OpenCV's face detector when OpenCV is installed (most ComfyUI setups have it through other custom nodes); without it, only the portrait framing applies. Faces of creations added before this feature are looked for once in the background. The detector's data file comes with the package for OpenCV versions that no longer include it (`data/`, OpenCV data under the Intel license kept in the file).
 
@@ -110,15 +112,12 @@ thumbs/<id>.jpg         thumbnails
 cache/                  thumbnails of output files, safe to delete
 ```
 
-To keep the library somewhere else (another drive, for example), edit `ComfyUI/user/my_own_library.config.json`:
+To keep the library somewhere else (another drive, for example), change **Library directory** in ComfyUI's Settings (**My Own Library** › **File Management**), or click the folder shown at the bottom of the library's left column. The new folder is checked, then you choose:
 
-```json
-{
-  "library_dir": "D:/ComfyUI Library"
-}
-```
+- **Move my library there**: everything is copied (with a progress bar, and each file in the terminal), the copy is checked, and only then the old folder is deleted.
+- **Use that folder**: opens the library already in that folder (or starts an empty one); yours stays where it is.
 
-Restart ComfyUI after changing it. To move an existing library, move the whole folder to the new location first.
+No restart is needed. The folder is saved in `ComfyUI/user/my_own_library.config.json` (`"library_dir"`), which you can still edit by hand, ComfyUI stopped.
 
 The `user` folder is not touched by ComfyUI updates, so the library survives them.
 

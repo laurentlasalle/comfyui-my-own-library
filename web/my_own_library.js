@@ -66,8 +66,9 @@ const SET = {
     badge: "MyOwnLibrary.Sidebar.NewFilesBadge",
     removeAfter: "MyOwnLibrary.Output.RemoveAfterAdding",
     similarity: "MyOwnLibrary.Versions.Similarity",
+    libraryDir: "MyOwnLibrary.Files.LibraryDirectory",
 };
-const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal" };
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "" };
 
 function getSetting(id) {
     try {
@@ -89,22 +90,127 @@ async function setSetting(id, value) {
 
 const rerender = () => { if (S.dialog?.open) render(); };
 
+// Two sections, in this order (sortOrder: higher first).
 const SETTINGS = [
-    { id: SET.faces, category: ["My Own Library", "Thumbnails", "Center on faces"], name: "Center thumbnails on faces",
-        tooltip: "When a picture has a single face, the square crop of the grid is centered on it. Portrait pictures are framed on their upper third.",
-        type: "boolean", defaultValue: true, onChange: rerender },
-    { id: SET.hover, category: ["My Own Library", "Grid", "Play videos on hover"], name: "Play videos on hover",
-        tooltip: "Play a muted preview when the mouse is over a video card.", type: "boolean", defaultValue: true },
-    { id: SET.badge, category: ["My Own Library", "Sidebar", "New files badge"], name: "New files badge",
+    { id: SET.badge, category: ["My Own Library", "Options", "New files badge"], name: "New files badge on sidebar", sortOrder: 40,
         tooltip: "Show on the library icon how many new files arrived in the output folder since your last visit.",
         type: "boolean", defaultValue: true, onChange: () => refreshBadge() },
-    { id: SET.removeAfter, category: ["My Own Library", "Output", "Remove after adding"], name: "Remove from output after adding (default)",
-        tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
-    { id: SET.similarity, category: ["My Own Library", "Versions", "Similarity"], name: "Similarity of version suggestions",
+    { id: SET.hover, category: ["My Own Library", "Options", "Play videos on hover"], name: "Play videos on hover", sortOrder: 30,
+        tooltip: "Play a muted preview when the mouse is over a video card.", type: "boolean", defaultValue: true },
+    { id: SET.faces, category: ["My Own Library", "Options", "Center on faces"], name: "Center thumbnails on faces", sortOrder: 20,
+        tooltip: "When a picture has a single face, the square crop of the grid is centered on it. Portrait pictures are framed on their upper third.",
+        type: "boolean", defaultValue: true, onChange: rerender },
+    { id: SET.similarity, category: ["My Own Library", "Options", "Similarity"], name: "Similarity of version suggestions (default)", sortOrder: 10,
         tooltip: "How alike creations must look (or sound) to be suggested as versions. Also changed from the Detect versions banner.",
         type: "combo", options: ["Strict", "Normal", "Loose"], defaultValue: "Normal",
         onChange: async (v) => { S.similarity = String(v || "Normal").toLowerCase(); S.suggestionIndex = 0; if (S.dialog?.open) { await loadSuggestions(); render(); } } },
+    { id: SET.libraryDir, category: ["My Own Library", "File Management", "Library directory"], name: "Library directory", sortOrder: 20,
+        tooltip: "Folder where your library keeps its copies, thumbnails and data. After changing it, you choose to move your library there or to use that folder as it is.",
+        type: "text", defaultValue: "", onChange: (v) => libraryDirChanged(v) },
+    { id: SET.removeAfter, category: ["My Own Library", "File Management", "Remove after adding"], name: "Remove from output after adding (default)", sortOrder: 10,
+        tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
 ];
+
+// ----------------------------------------------------------- library folder
+// The Library directory setting mirrors the folder the server uses (its
+// config file). A new value is checked, then confirmed: move the library
+// there, or use that folder as it is.
+let dirSync = false, dirTimer = null, serverDir = "";
+
+async function syncLibraryDirSetting() {
+    try {
+        serverDir = (await call("/library/dir")).dir;
+        if (getSetting(SET.libraryDir) !== serverDir) { dirSync = true; await setSetting(SET.libraryDir, serverDir); dirSync = false; }
+    } catch { dirSync = false; }
+}
+
+function libraryDirChanged(value) {
+    if (dirSync || !serverDir || !value || value === serverDir) return;
+    clearTimeout(dirTimer);
+    dirTimer = setTimeout(() => confirmLibraryDir(String(value)), 900);  // wait until typing stops
+}
+
+async function revertLibraryDir() {
+    dirSync = true;
+    await setSetting(SET.libraryDir, serverDir);
+    dirSync = false;
+}
+
+async function confirmLibraryDir(path) {
+    let chk;
+    try { chk = await call("/library/dir/check", { path }); } catch (e) { chk = { ok: false, error: e.message }; }
+    if (!chk.ok) {
+        if (chk.error !== "This is already the library folder.") toast("Library directory", chk.error, "error");
+        await revertLibraryDir();
+        return;
+    }
+    const box = h("dialog", { class: "mol-confirm" });
+    const done = async (fn) => { box.close(); box.remove(); await fn(); };
+    box.append(...[
+        h("h3", {}, "Change the library folder"),
+        h("div", { class: "mol-kv" }, h("div", {}, "Current"), h("div", {}, chk.current), h("div", {}, "New"), h("div", {}, chk.path)),
+        chk.has_library ? h("p", { class: "mol-hint" }, `This folder already holds a library (${chk.items} creation${chk.items === 1 ? "" : "s"}). `
+            + "Use it, or choose an empty folder to move yours there.") : null,
+        h("div", { class: "mol-confirmbtns" },
+            h("button", { class: "mol-btn", onclick: () => done(revertLibraryDir) }, "Cancel"),
+            h("button", { class: "mol-btn", title: chk.has_library ? "Open the library that is in this folder; yours stays where it is"
+                : "Start a new, empty library in this folder; yours stays where it is",
+                onclick: () => done(() => useLibraryDir(chk.path)) }, "Use that folder"),
+            h("button", { class: "mol-btn primary", disabled: chk.has_library,
+                title: "Copy everything there, check the copy, then delete the old folder",
+                onclick: () => done(() => moveLibraryDir(chk.path)) }, "Move my library there")),
+    ].filter(Boolean));
+    box.addEventListener("cancel", (e) => { e.preventDefault(); done(revertLibraryDir); });
+    injectCSS();
+    document.body.append(box);
+    box.showModal();
+}
+
+async function useLibraryDir(path) {
+    try {
+        applySnapshot(await call("/library/dir/use", { path }));
+        serverDir = S.libraryDir;
+        await loadSuggestions();
+        if (S.dialog?.open) { await loadOutput(true); render(); }
+        refreshBadge();
+        toast("Library folder changed", path);
+    } catch (e) {
+        toast("Could not use that folder", e.message, "error");
+        await revertLibraryDir();
+    }
+}
+
+async function moveLibraryDir(path) {
+    let files;
+    try { files = (await call("/library/dir/files")).files; } catch (e) { toast("Could not move the library", e.message, "error"); await revertLibraryDir(); return; }
+    if (!S.dialog?.open) toast("Moving the library", `${files.length} files, see the progress in the library window and the terminal`, "info");
+    const job = await runJob("Moving the library", files, 20, (chunk, info) => call("/library/dir/copy", { path, files: chunk, job: info }));
+    const errors = (job?.results || []).flatMap((r) => r.errors || []);
+    if (!job || job.cancelled || errors.length) {
+        if (errors.length) toast("Library not moved", errors.slice(0, 5).map((e) => `${e.rel}: ${e.error}`).join("\n"), "error");
+        else toast("Library not moved", "Stopped. Your library is still in its folder; the partial copy can be deleted.", "warn");
+        await revertLibraryDir();
+        return;
+    }
+    try {
+        applySnapshot(await call("/library/dir/finish", { path }));
+        serverDir = S.libraryDir;
+        await loadSuggestions();
+        if (S.dialog?.open) render();
+        toast("Library moved", path);
+    } catch (e) {
+        toast("Library not moved", e.message, "error");
+        await revertLibraryDir();
+    }
+}
+
+function openLibrarySettings() {
+    try {
+        const cmd = app.extensionManager?.command;
+        if (cmd?.execute) { cmd.execute("Comfy.ShowSettingsDialog"); return; }
+    } catch { /* below */ }
+    toast("Library directory", "Open ComfyUI's Settings (gear icon), section My Own Library, File Management.", "info");
+}
 
 // Small per-browser preferences (sort order). Storage can be unavailable: ignore errors.
 function loadPref(key, fallback) {
@@ -324,6 +430,21 @@ const CSS = `
 .mol-ddclear:hover{opacity:1}
 .mol-ddclear:disabled{opacity:.3;cursor:default}
 .mol-version{margin-bottom:4px;color:var(--mol-dim)}
+.mol-partbadge{position:absolute;right:10px;top:46px;padding:3px 8px;border-radius:6px;background:rgba(20,20,20,.8);color:#ececec;font-size:11px;font-weight:600}
+.mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
+.mol-dirlink{cursor:pointer}
+.mol-dirlink:hover{color:var(--mol-fg);text-decoration:underline}
+.mol-confirm{background:#171718;color:#ececec;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:20px 22px;max-width:640px;width:90vw;font-size:14px;font-family:inherit}
+.mol-confirm::backdrop{background:rgba(0,0,0,.55)}
+.mol-confirm h3{margin:0 0 14px;font-size:16px;font-weight:600}
+.mol-confirm .mol-kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-bottom:12px;word-break:break-all}
+.mol-confirm .mol-kv>div:nth-child(odd){color:#9a9a9a}
+.mol-confirmbtns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}
+.mol-confirmlist{max-height:50vh;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6}
+.mol-confirmlist .grp{font-weight:600;margin-top:6px}
+.mol-confirmlist .row{display:flex;gap:10px;color:#cfcfcf}
+.mol-confirmlist .row span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mol-confirmlist .row span:last-child{color:#9a9a9a;white-space:nowrap}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -421,6 +542,7 @@ const S = {
     suggestionIndex: 0,
     review: null,           // {sug, checked: Set, zoom: id|null}: suggestion being reviewed
     hideAdded: false,
+    hideParts: loadPref("hideParts", "1") === "1",  // hide segments of combined videos in Output
     newOnly: false,         // Output view: only files created since the previous visit
     lastVisit: 0,           // previous visit of the Output view (Unix time)
     badge: 0,
@@ -470,12 +592,15 @@ async function loadOutput(reset = true) {
     S.output.loading = true;
     const offset = reset ? 0 : S.output.files.length;
     const data = await call(`/output?${new URLSearchParams({
-        offset, limit: PAGE, kind: S.kind, q: S.search, hide_added: S.hideAdded ? 1 : 0,
+        offset, limit: PAGE, kind: S.kind, q: S.search, hide_added: S.hideAdded ? 1 : 0, hide_parts: S.hideParts ? 1 : 0,
         ...(S.newOnly ? { since: S.lastVisit } : {}),
     })}`);
     S.output.files = reset ? data.files : S.output.files.concat(data.files);
     S.output.total = data.total;
     S.output.notAdded = data.not_added;
+    S.output.hiddenParts = data.hidden_parts || 0;
+    // Parts that can be deleted (their final video is in the library).
+    try { S.partsPlan = await call("/output/parts"); } catch { S.partsPlan = null; }
     S.output.loading = false;
 }
 
@@ -911,7 +1036,8 @@ function renderNav() {
         ...cats,
         h("div", { class: "mol-navfoot", title: "Change it in ComfyUI/user/my_own_library.config.json" },
             S.version ? h("div", { class: "mol-version" }, `My Own Library ${S.version}`) : null,
-            "Library folder: ", S.libraryDir));
+            h("span", { class: "mol-dirlink", title: "Change it in ComfyUI's Settings › My Own Library › File Management",
+                onclick: openLibrarySettings }, "Library folder: ", S.libraryDir)));
 }
 
 function viewTitle() {
@@ -1050,6 +1176,32 @@ function clearIconClass() {
     return clearIcon;
 }
 
+// Suggestions of the Model field: families used in the library first (most
+// used first), then every model known to this library and to ComfyUI's
+// Browse Templates. Same name written two ways: the creators' spelling wins.
+async function loadKnownModels() {
+    if (S.knownModels) return;
+    try { S.knownModels = await call("/models"); } catch { S.knownModels = { ours: [], templates: [] }; }
+}
+
+function modelSuggestions() {
+    const norm = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const out = [], seen = new Set();
+    const add = (name) => { const k = norm(name); if (name && !seen.has(k)) { seen.add(k); out.push(name); } };
+    const counts = new Map();
+    for (const it of S.items) for (const f of familiesOf(it)) counts.set(f, (counts.get(f) || 0) + 1);
+    [...counts].sort((a, b) => b[1] - a[1]).forEach(([f]) => add(f));
+    const rest = [...KNOWN_FAMILIES, ...(S.knownModels?.ours || []), ...(S.knownModels?.templates || [])];
+    const ours = new Set([...KNOWN_FAMILIES, ...(S.knownModels?.ours || [])].map(norm));
+    // Our spelling first when both exist, then alphabetical.
+    rest.sort((a, b) => (ours.has(norm(b)) - ours.has(norm(a))) || a.localeCompare(b));
+    const tail = [];
+    const tseen = new Set(seen);
+    for (const name of rest) { const k = norm(name); if (!tseen.has(k)) { tseen.add(k); tail.push(name); } }
+    tail.sort((a, b) => a.localeCompare(b));
+    return [...out, ...tail];
+}
+
 function renderMain() {
     syncVersionBanner();
     const isOutput = S.view === "output";
@@ -1120,6 +1272,10 @@ function renderMain() {
             onclick: async () => { S.newOnly = !S.newOnly; await loadOutput(true); render(); },
         }, icon("sparkles"), "New since last visit"));
         filters.push(h("span", { class: "mol-spacer" }), h("button", {
+            class: "mol-chip" + (S.hideParts ? " active" : ""),
+            title: "Hide the segments of combined videos (Easy-Media projects and similar)" + (S.output.hiddenParts ? ` · ${S.output.hiddenParts} hidden` : ""),
+            onclick: async () => { S.hideParts = !S.hideParts; savePref("hideParts", S.hideParts ? "1" : "0"); await loadOutput(true); render(); },
+        }, icon(S.hideParts ? "eye-slash" : "eye"), "Hide parts"), h("button", {
             class: "mol-chip" + (S.hideAdded ? " active" : ""), title: "Show only files not yet copied to the library",
             onclick: async () => { S.hideAdded = !S.hideAdded; await loadOutput(true); render(); },
         }, icon(S.hideAdded ? "eye-slash" : "eye"), "Hide added"));
@@ -1578,6 +1734,9 @@ function renderOutputGrid() {
             kindBadge(f.kind),
             check,
             familyStack(f.families),
+            f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
+                f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
+            f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${f.parts} parts`) : null,
             f.in_library ? h("span", { class: "mol-inlib" }, "In library")
                 : (S.lastVisit && f.mtime > S.lastVisit ? h("span", { class: "mol-inlib mol-new" }, "New") : null));
         attachHoverPlay(thumb, f.kind, fileSource(f));
@@ -1827,6 +1986,44 @@ async function refreshAfterJob() {
     refreshBadge();
 }
 
+// Segments of combined videos whose final is in the library: list them
+// grouped by final video, then delete them (one request per file).
+function deleteParts() {
+    const plan = S.partsPlan;
+    if (!plan?.files) return;
+    const box = h("dialog", { class: "mol-confirm" });
+    const close = () => { box.close(); box.remove(); };
+    const list = h("div", { class: "mol-confirmlist" });
+    for (const g of plan.groups) {
+        list.append(h("div", { class: "grp" }, `${g.final.split("/").pop()} · ${g.parts} part${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
+        for (const f of g.files) list.append(h("div", { class: "row" }, h("span", { title: f.rel }, f.rel), h("span", {}, fmtSize(f.size))));
+        if (g.kind === "easy-media") list.append(h("div", { class: "row" }, h("span", { style: { color: "#9a9a9a" } }, "Kept: project.json, out/"), h("span", {}, "")));
+    }
+    box.append(
+        h("h3", {}, `Delete ${plan.files} file${plan.files > 1 ? "s" : ""} from output?`),
+        h("p", { class: "mol-hint" }, "Segments of combined videos already in your library (and, for Easy-Media projects, their context latents). "
+            + "The final videos and the projects' project.json stay. This cannot be undone."),
+        list,
+        h("div", { class: "mol-hint", style: { marginTop: "8px" } }, `Total: ${fmtSize(plan.total)}`),
+        h("div", { class: "mol-confirmbtns" },
+            h("button", { class: "mol-btn", onclick: close }, "Cancel"),
+            h("button", { class: "mol-btn danger", onclick: async () => {
+                close();
+                const files = plan.groups.flatMap((g) => g.files.map((f) => ({ rel: f.rel })));
+                const job = await runJob("Deleting parts", files, 1, (chunk, info) => call("/output/parts/delete", { files: chunk, job: info }));
+                if (!job) return;
+                const deleted = job.results.reduce((a, r) => a + (r.deleted?.length || 0), 0);
+                const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
+                const errors = job.results.flatMap((r) => r.errors || []);
+                if (errors.length) toast("Some parts were not deleted", errors.slice(0, 5).map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+                toast(job.cancelled ? "Deletion stopped" : "Parts deleted", `${deleted} file(s), ${fmtSize(freed)} freed`);
+                await refreshAfterJob();
+            } }, icon("trash"), `Delete ${plan.files} file${plan.files > 1 ? "s" : ""}`)));
+    box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+    S.dialog.append(box);
+    box.showModal();
+}
+
 function removeAfterBox(get, set) {
     const box = h("input", { type: "checkbox" });
     box.checked = get();
@@ -1854,6 +2051,8 @@ function renderOutputBar() {
         S.selected.size ? h("button", { class: "mol-btn", onclick: () => { S.selected.clear(); S.selInfo.clear(); render(); } }, "Clear") : null,
         toDelete.length ? h("button", { class: "mol-btn danger", onclick: () => deleteFromOutput(toDelete) },
             icon("trash"), `Delete ${toDelete.length} from output`) : null,
+        S.partsPlan?.files ? h("button", { class: "mol-btn danger", title: "Segments of combined videos whose final video is in your library",
+            onclick: deleteParts }, icon("trash"), `Delete parts (${fmtSize(S.partsPlan.total)})`) : null,
         h("span", { class: "mol-spacer" }),
         categorySelect(S.addCategory, (v) => { S.addCategory = v; }),
         h("div", { style: { width: "260px" } },
@@ -2251,8 +2450,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
     const family = h("input", { type: "text", value: it.family_override || "", list: familyList,
         placeholder: detected ? `${detected} (detected)` : "Not detected, type a name" });
     family.addEventListener("input", () => saveSoon({ family_override: family.value }));
-    const familyOptions = h("datalist", { id: familyList },
-        ...[...new Set([...KNOWN_FAMILIES, ...allFamilies()])].map((f) => h("option", { value: f })));
+    const familyOptions = h("datalist", { id: familyList }, ...modelSuggestions().map((f) => h("option", { value: f })));
 
     const notes = h("textarea", { placeholder: "What worked, what to try next" }, it.notes || "");
     notes.addEventListener("input", () => saveSoon({ notes: notes.value }));
@@ -2441,6 +2639,7 @@ async function open(view) {
     if (view) S.view = view;
     S.detail = null;
     S.similarity = String(getSetting(SET.similarity) || "Normal").toLowerCase();
+    loadKnownModels();
     if (!S.opened) { S.removeAfter = !!getSetting(SET.removeAfter); S.opened = true; }
     S.dialog.showModal();
     S.dialog.querySelector(".mol-root").replaceChildren(h("div", { class: "mol-empty", style: { flex: 1 } }, "Loading library"));
@@ -2507,6 +2706,7 @@ app.registerExtension({
         { id: "MyOwnLibrary.Open", label: "Open My Own Library", icon: "pi pi-bookmark", function: () => open() },
     ],
     setup() {
+        syncLibraryDirSetting();
         const manager = app.extensionManager;
         const register = manager?.sidebarTab?.registerSidebarTab ?? manager?.registerSidebarTab;
         if (register) {
