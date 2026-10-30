@@ -2,6 +2,10 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.10.1 (2026-10-30)
+
+- Fixed: an error in the terminal when the library size was computed while copies were being renamed in the background.
+
 ## 0.10.0 (2026-10-30)
 
 - Segments already in the library are recognized (Easy-Media by the folder they came from, others by their lengths): same **Part** / **Combined from** marks, **Hide parts**, and **Remove parts** with a confirmation listing them, once their final video is in the library.

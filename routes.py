@@ -213,7 +213,11 @@ def library_files(lib):
             rel = os.path.normpath(os.path.join(rel_root, n)).replace("\\", "/")
             if rel.startswith("./"):
                 rel = rel[2:]
-            out.append({"rel": rel, "size": os.path.getsize(os.path.join(root, n))})
+            try:
+                size = os.path.getsize(os.path.join(root, n))
+            except OSError:
+                continue  # renamed or removed meanwhile (background work)
+            out.append({"rel": rel, "size": size})
     return out
 
 
