@@ -61,6 +61,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Follow a long operation | Adding, moving, deleting from output and removing from the library are done one file at a time. A progress bar replaces the action bar (other actions wait until it ends), with **Cancel** to stop after the current file; what is already done stays done. ComfyUI's terminal shows each file (`[My Own Library] Added 37/240: ...`) and a summary at the end. The Output view then refreshes with the files left, keeping the current filters and search. |
 | Video thumbnail | Pause the video on the frame you want (or move along its timeline) and click **New thumbnail** at the top right of the player. **Reset thumbnail**, next to it once a thumbnail was chosen, goes back to the automatic one. The video keeps playing (or stays paused). A chosen thumbnail is never replaced automatically. |
 | Segments of combined videos | Videos made of several segments (Easy-Media projects, or segments followed by a video whose length is their sum) are recognized in the Output view: the final video shows **Combined from N parts**, each segment **Part 2 of 4**. **Hide parts** (on by default) hides the segments. Once the final video is in your library, **Delete parts** lists the files that can go (segments and, for Easy-Media, their context latents), grouped by final video with their size, and deletes them after confirmation. The project's `project.json` and `out/` folder are always kept. |
+| Segments already in the library | Segments added to the library are recognized too (by the folder they came from for Easy-Media, by their lengths otherwise) and show the same **Part 2 of 4** / **Combined from N parts**. **Hide parts** hides them; **Remove parts** (shown when their final video is in the library too) lists them with their size and removes their library copies. Files in the output folder are not touched. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
 | Work on several creations | Tick cards (checkbox on hover) or use **Select all shown** for the whole current view, then **Move to category**, **Add tags**, **Remove N from library** (a card with versions is removed with all its versions, after confirmation) or **Group as versions**. |
 
@@ -95,7 +96,7 @@ My Own Library has its own section in ComfyUI's **Settings** (gear icon), saved 
 | Options | Play videos on hover | On | Muted preview when the mouse is over a video card. |
 | Options | Center thumbnails on faces | On | When a picture has a single face, the square crop of the grid is centered on it; portrait pictures are framed on their upper third. |
 | Options | Similarity of version suggestions (default) | Normal | Strict, Normal or Loose; also changed from the Detect versions banner. |
-| File Management | Library directory | `ComfyUI/user/my_own_library` | Where the library keeps its copies and data (see below). |
+| File Management | Library directory | `ComfyUI/user/my_own_library` | Where the library keeps its copies and data (see below). Its name shows the size of the whole library. |
 | File Management | Remove from output after adding (default) | Off | Whether that box is ticked when the library opens. |
 
 Faces are found with OpenCV's face detector when OpenCV is installed (most ComfyUI setups have it through other custom nodes); without it, only the portrait framing applies. Faces of creations added before this feature are looked for once in the background. The detector's data file comes with the package for OpenCV versions that no longer include it (`data/`, OpenCV data under the Intel license kept in the file).
@@ -106,7 +107,8 @@ By default the library lives in `ComfyUI/user/my_own_library/`:
 
 ```
 library.json            titles, categories, tags, notes
-files/YYYY-MM/<id>.ext  copies of your creations (plus companion PNGs of videos)
+files/YYYY-MM/<name> (<id>).ext  copies of your creations, under their original name
+                                 plus the start of their id (and companion PNGs of videos)
 meta/<id>.json          full prompt and workflow of each creation
 thumbs/<id>.jpg         thumbnails
 cache/                  thumbnails of output files, safe to delete

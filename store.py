@@ -33,6 +33,18 @@ THUMB_SIZE = 512
 THUMB_VERSION = 2  # 2: video thumbnails skip black first frames
 
 
+NAMES_VERSION = 1  # copies named "<original name> (<id>).ext" instead of "<id>.ext"
+
+
+def readable_stem(original_name, item_id):
+    """File name of a copy in the library: the original name, made safe for
+    Windows, plus the start of the creation's id so names never collide."""
+    stem = os.path.splitext(os.path.basename(original_name or ""))[0]
+    stem = "".join("_" if c in '\\/:*?"<>|' or ord(c) < 32 else c for c in stem).strip(" .")
+    stem = stem[:80].rstrip(" .") or "creation"
+    return "%s (%s)" % (stem, item_id[:8])
+
+
 def _say(text):
     print("[My Own Library] " + text, flush=True)
 SHARED_FIELDS = ("title", "category", "tags", "favorite")
@@ -282,6 +294,58 @@ class Library:
                  % (len(todo), "s" if len(todo) > 1 else "", time.time() - t0))
         self._check_video_thumbnails()
         self._compute_focus()
+        self._rename_copies()
+
+    def _rename_copies(self):
+        """Give copies made by older versions a readable name, once."""
+        todo = [i["id"] for i in self.data["items"].values() if i.get("names_v") != NAMES_VERSION]
+        if not todo:
+            return
+        _say("Giving readable names to %d library cop%s, in the background" % (len(todo), "y" if len(todo) == 1 else "ies"))
+        done = failed = 0
+        for item_id in todo:
+            with self.lock:
+                item = self.data["items"].get(item_id)
+                if not item:
+                    continue
+                stem = readable_stem((item.get("source") or {}).get("name") or item.get("title"), item_id)
+                changes = {}
+                ok = True
+                for field in ("file", "companion"):
+                    rel = item.get(field)
+                    if not rel:
+                        continue
+                    folder, name = os.path.split(rel)
+                    ext = os.path.splitext(name)[1]
+                    new_rel = "%s/%s%s" % (folder, stem, ext)
+                    if new_rel == rel:
+                        continue
+                    src, dst = _safe_join(self.dir, rel), _safe_join(self.dir, new_rel)
+                    try:
+                        if os.path.exists(dst):
+                            raise FileExistsError(new_rel)
+                        os.rename(src, dst)
+                        changes[field] = new_rel
+                    except Exception:
+                        ok = False
+                        break
+                if not ok:
+                    # Undo a half rename (main renamed, companion not).
+                    for field, new_rel in changes.items():
+                        try:
+                            os.rename(_safe_join(self.dir, new_rel), _safe_join(self.dir, item[field]))
+                        except Exception:
+                            pass
+                    failed += 1
+                    continue
+                item.update(changes)
+                item["names_v"] = NAMES_VERSION
+                done += 1
+                if done % 50 == 0:
+                    self._save()
+        with self.lock:
+            self._save()
+        _say("Library copies renamed: %d%s" % (done, (", %d left as they were" % failed) if failed else ""))
 
     def _compute_focus(self):
         """Point of interest (face) of thumbnails made before this feature, once."""
@@ -452,10 +516,19 @@ class Library:
     # ------------------------------------------------------------- queries
     def snapshot(self):
         with self.lock:
-            items = sorted(self.data["items"].values(), key=lambda i: i.get("added", ""), reverse=True)
+            raw = sorted(self.data["items"].values(), key=lambda i: i.get("added", ""), reverse=True)
             # Similarity signatures stay on the server; the window doesn't need them.
             items = [{k: v for k, v in i.items() if k not in ("sig", "sig_v", "sha", "chash", "hash_v")}
-                     for i in items]
+                     for i in raw]
+            groups = self.library_parts(raw)
+            by_id = {i["id"]: i for i in items}
+            for g in groups:
+                for p in g["parts"]:
+                    if p["id"] in by_id:
+                        by_id[p["id"]]["part"] = {"index": p["index"], "count": p["count"], "project": g["project"]}
+                for f in g["finals"]:
+                    if f in by_id:
+                        by_id[f]["parts"] = len(g["parts"])
             return {
                 "library_dir": self.dir,
                 "version": __version__,
@@ -463,6 +536,17 @@ class Library:
                 "items": items,
                 "duplicates": self.duplicates(),
             }
+
+    def library_parts(self, raw=None):
+        """Groups of segments among the library's own creations."""
+        try:
+            from . import parts
+            if raw is None:
+                with self.lock:
+                    raw = list(self.data["items"].values())
+            return parts.library_groups(self.dir, raw, self.roots.get("output", ""))
+        except Exception:
+            return []
 
     def get(self, item_id):
         with self.lock:
@@ -635,7 +719,8 @@ class Library:
         item_id = uuid.uuid4().hex[:12]
         ext = os.path.splitext(full)[1].lower()
         month = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m")
-        rel_main = "files/%s/%s%s" % (month, item_id, ext)
+        stem = readable_stem(os.path.basename(full), item_id)
+        rel_main = "files/%s/%s%s" % (month, stem, ext)
         dest = _safe_join(self.dir, rel_main)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copy2(full, dest)
@@ -643,7 +728,7 @@ class Library:
         rel_comp = None
         comp = md.companion_png(full)
         if comp:
-            rel_comp = "files/%s/%s.png" % (month, item_id)
+            rel_comp = "files/%s/%s.png" % (month, stem)
             shutil.copy2(comp, _safe_join(self.dir, rel_comp))
 
         prompt, workflow = md.extract(full)
@@ -683,6 +768,7 @@ class Library:
             "sig": sim.signature(dest, kind, thumb),
             "sig_v": sim.SIG_VERSION,
             "thumb_v": THUMB_VERSION,
+            "names_v": NAMES_VERSION,
             "focus": faces.focus_point(thumb) if has_thumb else None,
             "focus_v": faces.FOCUS_VERSION,
             **fp,

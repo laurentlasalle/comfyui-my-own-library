@@ -119,7 +119,12 @@ let dirSync = false, dirTimer = null, serverDir = "";
 
 async function syncLibraryDirSetting() {
     try {
-        serverDir = (await call("/library/dir")).dir;
+        const info = await call("/library/dir");
+        serverDir = info.dir;
+        // Size of the whole library next to the setting's name (best effort:
+        // ComfyUI shows the setting's name as declared).
+        const def = SETTINGS.find((x) => x.id === SET.libraryDir);
+        if (def && info.size != null) def.name = `Library directory · ${fmtSize(info.size)}`;
         if (getSetting(SET.libraryDir) !== serverDir) { dirSync = true; await setSetting(SET.libraryDir, serverDir); dirSync = false; }
     } catch { dirSync = false; }
 }
@@ -543,6 +548,7 @@ const S = {
     review: null,           // {sug, checked: Set, zoom: id|null}: suggestion being reviewed
     hideAdded: false,
     hideParts: loadPref("hideParts", "1") === "1",  // hide segments of combined videos in Output
+    hideLibParts: loadPref("hideLibParts", "0") === "1",  // same, in the library views
     newOnly: false,         // Output view: only files created since the previous visit
     lastVisit: 0,           // previous visit of the Output view (Unix time)
     badge: 0,
@@ -585,6 +591,7 @@ function watchPending() {
 
 async function loadLibrary() {
     applySnapshot(await call("/library"));
+    try { S.libPartsPlan = await call("/library/parts"); } catch { S.libPartsPlan = null; }
     await loadSuggestions();
 }
 
@@ -685,6 +692,7 @@ function filteredItems() {
         if (S.view === "recent" && new Date(it.added).getTime() < recentLimit) return false;
         if (S.view.startsWith("cat:") && it.category !== S.view.slice(4)) return false;
         if (S.kind !== "all" && it.kind !== S.kind) return false;
+        if (S.hideLibParts && it.part) return false;
         if (S.families.size && !familiesOf(it).some((f) => S.families.has(f))) return false;
         if (S.tags.size) {
             const own = new Set((it.tags || []).map((t) => t.toLowerCase()));
@@ -1265,6 +1273,17 @@ function renderMain() {
                 if (S.versionsOpen) S.dialog.querySelector(".mol-main > .mol-grid-wrap")?.scrollTo({ top: 0, behavior: "smooth" });
             },
         }, icon("clone"), "Detect versions", nSug ? h("span", { class: "mol-chipcount" }, String(nSug)) : null);
+        const anyParts = S.items.some((x) => x.part);
+        if (anyParts) {
+            filters.push(h("button", {
+                class: "mol-chip" + (S.hideLibParts ? " active" : ""), title: "Hide the segments of combined videos",
+                onclick: () => { S.hideLibParts = !S.hideLibParts; savePref("hideLibParts", S.hideLibParts ? "1" : "0"); render(); },
+            }, icon(S.hideLibParts ? "eye-slash" : "eye"), "Hide parts"));
+        }
+        if (S.libPartsPlan?.count) {
+            filters.push(h("button", { class: "mol-chip", title: "Segments whose final video is in your library too",
+                onclick: removeLibraryParts }, icon("trash"), `Remove parts (${fmtSize(S.libPartsPlan.total)})`));
+        }
         filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortBox);
     } else {
         filters.push(h("button", {
@@ -1593,6 +1612,9 @@ function renderItemGrid() {
         const thumb = h("div", { class: "mol-thumb" + (n > 1 ? " stack" : "") },
             thumbEl(itemThumb(it), it.kind, itemFile(it), it),
             kindBadge(it.kind, "mol-badge lib"),
+            it.part ? h("span", { class: "mol-partbadge", title: it.part.project ? `Segment of the Easy-Media project ${it.part.project}` : "Segment of a combined video" },
+                `Part ${it.part.index} of ${it.part.count}`) : null,
+            it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${it.parts} parts`) : null,
             check,
             h("span", { class: "mol-topright" },
                 it.favorite ? h("span", { class: "mol-star" }, icon("star-fill")) : null,
@@ -1984,6 +2006,7 @@ async function refreshAfterJob() {
     }
     render();
     refreshBadge();
+    syncLibraryDirSetting();
 }
 
 // Segments of combined videos whose final is in the library: list them
@@ -2019,6 +2042,40 @@ function deleteParts() {
                 toast(job.cancelled ? "Deletion stopped" : "Parts deleted", `${deleted} file(s), ${fmtSize(freed)} freed`);
                 await refreshAfterJob();
             } }, icon("trash"), `Delete ${plan.files} file${plan.files > 1 ? "s" : ""}`)));
+    box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+    S.dialog.append(box);
+    box.showModal();
+}
+
+// Segments in the library whose final video is there too: list, then remove
+// the library copies (files in the output folder are not touched).
+function removeLibraryParts() {
+    const plan = S.libPartsPlan;
+    if (!plan?.count) return;
+    const box = h("dialog", { class: "mol-confirm" });
+    const close = () => { box.close(); box.remove(); };
+    const list = h("div", { class: "mol-confirmlist" });
+    for (const g of plan.groups) {
+        list.append(h("div", { class: "grp" }, `${g.final} · ${g.parts.length} part${g.parts.length > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
+        for (const p of g.parts) list.append(h("div", { class: "row" }, h("span", { title: p.name || p.title }, `Part ${p.index} · ${p.title}`), h("span", {}, fmtSize(p.size))));
+    }
+    box.append(
+        h("h3", {}, `Remove ${plan.count} part${plan.count > 1 ? "s" : ""} from your library?`),
+        h("p", { class: "mol-hint" }, "Segments of combined videos whose final video is in your library. Their library copies are deleted; the final videos stay, and files in the output folder are not touched."),
+        list,
+        h("div", { class: "mol-hint", style: { marginTop: "8px" } }, `Total: ${fmtSize(plan.total)}`),
+        h("div", { class: "mol-confirmbtns" },
+            h("button", { class: "mol-btn", onclick: close }, "Cancel"),
+            h("button", { class: "mol-btn danger", onclick: async () => {
+                close();
+                const ids = plan.groups.flatMap((g) => g.parts.map((p) => p.id));
+                const job = await runJob("Removing parts", ids, 1, (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
+                if (!job) return;
+                const removed = job.results.reduce((a, r) => a + (r.removed || 0), 0);
+                const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
+                toast(job.cancelled ? "Removal stopped" : "Parts removed", `${removed} part(s), ${fmtSize(freed)} freed`);
+                await refreshAfterJob();
+            } }, icon("trash"), `Remove ${plan.count} part${plan.count > 1 ? "s" : ""}`)));
     box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
     S.dialog.append(box);
     box.showModal();

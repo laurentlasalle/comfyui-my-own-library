@@ -2,6 +2,12 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.10.0 (2026-10-30)
+
+- Segments already in the library are recognized (Easy-Media by the folder they came from, others by their lengths): same **Part** / **Combined from** marks, **Hide parts**, and **Remove parts** with a confirmation listing them, once their final video is in the library.
+- Library copies keep a readable name: the original name plus the start of their id, for example `mauriceruns_00001_ (5806bab7).mp4`. Existing copies are renamed once in the background.
+- The **Library directory** setting shows the size of the whole library.
+
 ## 0.9.0 (2026-10-30)
 
 - Segments of combined videos (Easy-Media projects read from their project.json; other tools by length, timing and first frame): **Combined from N parts** / **Part 2 of 4** on the Output cards, **Hide parts** (on by default), and **Delete parts** once the final video is in the library, with a confirmation listing every file and its size. Segments no longer count in the new files badge.

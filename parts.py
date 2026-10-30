@@ -194,3 +194,117 @@ def annotate(base, files):
             if r in by_rel:
                 by_rel[r]["parts"] = len({p["index"] for p in g["parts"]}) or len(g["parts"])
     return found
+
+
+# ------------------------------------------------------------- in the library
+# Segments that were added to the library before (or without) being hidden:
+# recognized by the path they came from (Easy-Media) or by their lengths.
+_lib_generic = {"key": None, "groups": [], "running": False}
+_EM_PART = re.compile(r"^(?P<proj>.+)/video_(?P<seg>\d+)_(?P<gen>\d+)\.[a-z0-9]+$", re.I)
+_EM_FINAL = re.compile(r"^(?P<proj>.+)/out/[^/]+$", re.I)
+
+
+def _ts(iso):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(iso).timestamp()
+    except Exception:
+        return 0.0
+
+
+def library_groups(lib_dir, items, output_base):
+    """[{kind, project, finals: [item ids], parts: [{id, index, count}]}] among
+    the library's items (dicts with id, kind, source, file, created, sig)."""
+    projects = {}
+    for it in items:
+        src = it.get("source") or {}
+        if src.get("root") != "output" or it.get("kind") != "video":
+            continue
+        rel = src.get("rel") or ""
+        m = _EM_PART.match(rel)
+        if m:
+            projects.setdefault(m.group("proj"), {"parts": [], "finals": []})["parts"].append((it, int(m.group("seg"))))
+            continue
+        m = _EM_FINAL.match(rel)
+        if m and os.path.basename(rel).lower().startswith(os.path.basename(m.group("proj")).lower()):
+            projects.setdefault(m.group("proj"), {"parts": [], "finals": []})["finals"].append(it)
+    groups, used = [], set()
+    for proj, g in projects.items():
+        if not g["parts"]:
+            continue
+        count = None
+        pj = os.path.join(output_base, proj, "project.json")
+        if os.path.isfile(pj):
+            try:
+                with open(pj, "r", encoding="utf-8") as fh:
+                    count = len((json.load(fh) or {}).get("segments") or {}) or None
+            except Exception:
+                pass
+        if not g["finals"] and count is None:
+            continue  # no proof it's a project: leave these videos alone
+        count = count or max(seg for _it, seg in g["parts"]) + 1
+        groups.append({"kind": "easy-media", "project": os.path.basename(proj),
+                       "finals": [f["id"] for f in sorted(g["finals"], key=lambda f: f.get("created", ""))],
+                       "parts": [{"id": it["id"], "index": seg + 1, "count": count} for it, seg in g["parts"]]})
+        used.update(it["id"] for it, _s in g["parts"])
+        used.update(f["id"] for f in g["finals"])
+
+    # Generic: from the cache of the last background run.
+    key = hash(tuple(sorted((i["id"], i.get("file")) for i in items if i.get("kind") == "video")))
+    with _lock:
+        gen = list(_lib_generic["groups"])
+        if _lib_generic["key"] != key and not _lib_generic["running"]:
+            _lib_generic["running"] = True
+            todo = [dict(i) for i in items if i.get("kind") == "video" and i["id"] not in used]
+
+            def work():
+                try:
+                    found = _library_generic(lib_dir, todo)
+                except Exception:
+                    found = []
+                with _lock:
+                    _lib_generic.update({"key": key, "groups": found, "running": False})
+
+            threading.Thread(target=work, daemon=True).start()
+    present = {i["id"] for i in items}
+    gen = [g for g in gen if all(p["id"] in present and p["id"] not in used for p in g["parts"])
+           and all(f in present for f in g["finals"])]
+    return groups + gen
+
+
+def _library_generic(lib_dir, videos):
+    by_dir = {}
+    for it in videos:
+        src = it.get("source") or {}
+        by_dir.setdefault((src.get("root"), os.path.dirname(src.get("rel") or "")), []).append(it)
+    out = []
+    for _d, vids in by_dir.items():
+        if len(vids) < 3:
+            continue
+        vids.sort(key=lambda i: i.get("created", ""))
+        dur = lambda i: (i.get("sig") or {}).get("dur") or 0
+        used = set()
+        for k in range(len(vids) - 1, 1, -1):
+            final = vids[k]
+            fd = dur(final)
+            if not fd or final["id"] in used:
+                continue
+            total, chosen = 0.0, []
+            for j in range(k - 1, max(-1, k - 13), -1):
+                part = vids[j]
+                pd = dur(part)
+                if part["id"] in used or not pd or pd >= fd or _ts(final.get("created")) - _ts(part.get("created")) > 20 * 60:
+                    break
+                total += pd
+                chosen.insert(0, part)
+                if len(chosen) >= 2 and abs(total - fd) <= 0.25 + 0.05 * len(chosen):
+                    if _same_start(os.path.join(lib_dir, chosen[0]["file"]), os.path.join(lib_dir, final["file"])):
+                        n = len(chosen)
+                        out.append({"kind": "generic", "project": None, "finals": [final["id"]],
+                                    "parts": [{"id": c["id"], "index": x + 1, "count": n} for x, c in enumerate(chosen)]})
+                        used.update(c["id"] for c in chosen)
+                        used.add(final["id"])
+                    break
+                if total > fd + 1:
+                    break
+    return out

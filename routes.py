@@ -439,7 +439,8 @@ def setup_routes():
     @routes.get(PREFIX + "/library/dir")
     async def get_library_dir(request):
         lib = library()
-        return web.json_response({"dir": lib.dir})
+        size = await run(lambda: sum(f["size"] for f in library_files(lib)))
+        return web.json_response({"dir": lib.dir, "size": size})
 
     @routes.post(PREFIX + "/library/dir/check")
     async def post_library_dir_check(request):
@@ -600,6 +601,32 @@ def setup_routes():
                 job.step(rel, "error", str(e))
         job.finish(bool(body.get("cancelled")))
         return web.json_response({"deleted": deleted, "errors": errors, "freed": freed})
+
+    @routes.get(PREFIX + "/library/parts")
+    async def get_library_parts(request):
+        """Segments in the library whose final video is in the library too."""
+        lib = library()
+
+        def plan():
+            groups = []
+            for g in lib.library_parts():
+                if not g["finals"]:
+                    continue
+                entries = []
+                for p in g["parts"]:
+                    it = lib.get(p["id"])
+                    if it:
+                        entries.append({"id": it["id"], "title": it.get("title"), "name": (it.get("source") or {}).get("name"),
+                                        "size": it.get("size") or 0, "index": p["index"]})
+                final = lib.get(g["finals"][-1]) or {}
+                if entries:
+                    groups.append({"final": final.get("title") or final.get("id"), "project": g["project"],
+                                   "parts": entries, "total": sum(e["size"] for e in entries)})
+            return groups
+
+        groups = await run(plan)
+        return web.json_response({"groups": groups, "count": sum(len(g["parts"]) for g in groups),
+                                  "total": sum(g["total"] for g in groups)})
 
     @routes.post(PREFIX + "/job/cancel")
     async def post_job_cancel(request):
