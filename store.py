@@ -525,7 +525,8 @@ class Library:
             for g in groups:
                 for p in g["parts"]:
                     if p["id"] in by_id:
-                        by_id[p["id"]]["part"] = {"index": p["index"], "count": p["count"], "project": g["project"]}
+                        by_id[p["id"]]["part"] = {"index": p["index"], "count": p["count"], "project": g["project"],
+                                                  "final": g["finals"][-1] if g["finals"] else None}
                 for f in g["finals"]:
                     if f in by_id:
                         by_id[f]["parts"] = len(g["parts"])

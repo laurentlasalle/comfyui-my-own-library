@@ -435,8 +435,14 @@ const CSS = `
 .mol-ddclear:hover{opacity:1}
 .mol-ddclear:disabled{opacity:.3;cursor:default}
 .mol-version{margin-bottom:4px;color:var(--mol-dim)}
+.mol-stripitem.part{border-color:#4fb3a9}
+.mol-stripitem.part.active{border-color:var(--mol-accent);box-shadow:0 0 0 2px #4fb3a9}
+.mol-striptag{position:absolute;right:3px;top:3px;font-size:10px;font-weight:700;color:#0f1f1d;background:#4fb3a9;border-radius:4px;padding:0 4px}
+.mol-parttag{margin-left:10px;font-size:12px;font-weight:600;color:#4fb3a9}
+.mol-parttag.final{color:var(--mol-accent)}
 .mol-partbadge{position:absolute;right:10px;top:46px;padding:3px 8px;border-radius:6px;background:rgba(20,20,20,.8);color:#ececec;font-size:11px;font-weight:600}
 .mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
+.mol-partbadge:not(.final){background:rgba(79,179,169,.92);color:#0f1f1d}
 .mol-filename{user-select:text;word-break:break-all}
 .mol-dirlink{cursor:pointer}
 .mol-dirlink:hover{color:var(--mol-fg);text-decoration:underline}
@@ -2318,6 +2324,12 @@ function applyItemUpdate(item) {
     if (idx >= 0) S.items[idx] = item;  // the server sends the whole item
 }
 
+// Title of the final video a segment was used for, when it is in the library.
+function finalOf(part) {
+    const fin = part?.part?.final && S.items.find((x) => x.id === part.part.final);
+    return fin ? fin.title : "";
+}
+
 function renderDetail() {
     const { type, list, index } = S.detail;
     const isItem = type === "item";
@@ -2335,7 +2347,7 @@ function renderDetail() {
     let dragFrom = null;
     const strip = members.length > 1 ? h("div", { class: "mol-strip" },
         ...members.map((m, i) => h("button", {
-            class: "mol-stripitem" + (i === ver ? " active" : ""),
+            class: "mol-stripitem" + (i === ver ? " active" : "") + (m.part ? " part" : ""),
             title: `v${i + 1} · ${fmtDate(m.created)}${m.work_cover ? " · cover" : ""}\n↑ / ↓ to browse, drag or Alt+↑ / Alt+↓ to move`,
             draggable: "true",
             onclick: () => { S.detail.ver = i; render(); },
@@ -2350,7 +2362,8 @@ function renderDetail() {
                 dragFrom = null;
                 if (from !== null && from !== i) await reorderVersions(members, from, i);
             },
-        }, h("img", { src: itemThumb(m), alt: "", draggable: "false" }), h("span", {}, `v${i + 1}`)))) : null;
+        }, h("img", { src: itemThumb(m), alt: "", draggable: "false" }), h("span", {}, `v${i + 1}`),
+            m.part ? h("b", { class: "mol-striptag", title: `Segment ${m.part.index} of ${m.part.count}` }, `P${m.part.index}`) : null))) : null;
 
     const preview = h("div", { class: "mol-preview" + (strip ? " has-strip" : "") },
         previewEl(entry.kind, media, isItem ? itemThumb(entry) : fileThumb(entry)),
@@ -2373,7 +2386,10 @@ function renderDetail() {
 
     const info = h("aside", { class: "mol-info" });
     const headTitle = h("div", { style: { fontWeight: 600, flex: 1 } }, `${index + 1} / ${list.length}`,
-        members.length > 1 ? h("span", { style: { color: "var(--mol-accent)", marginLeft: "10px" } }, `v${ver + 1} of ${members.length}`) : null);
+        members.length > 1 ? h("span", { style: { color: "var(--mol-accent)", marginLeft: "10px" } }, `v${ver + 1} of ${members.length}`) : null,
+        entry?.part ? h("span", { class: "mol-parttag", title: "Only a segment used to make a combined video" },
+            `Part ${entry.part.index} of ${entry.part.count}` + (finalOf(entry) ? ` · segment of ${finalOf(entry)}` : "")) : null,
+        entry?.parts ? h("span", { class: "mol-parttag final" }, `Combined from ${entry.parts} parts`) : null);
     info.append(h("div", { class: "mol-infohead" },
         h("button", { class: "mol-iconbtn", title: "Back to grid (Esc)", onclick: closeDetail }, icon("arrow-left")),
         headTitle,
