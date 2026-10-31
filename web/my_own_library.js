@@ -437,6 +437,7 @@ const CSS = `
 .mol-version{margin-bottom:4px;color:var(--mol-dim)}
 .mol-partbadge{position:absolute;right:10px;top:46px;padding:3px 8px;border-radius:6px;background:rgba(20,20,20,.8);color:#ececec;font-size:11px;font-weight:600}
 .mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
+.mol-filename{user-select:text;word-break:break-all}
 .mol-dirlink{cursor:pointer}
 .mol-dirlink:hover{color:var(--mol-fg);text-decoration:underline}
 .mol-confirm{background:#171718;color:#ececec;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:20px 22px;max-width:640px;width:90vw;font-size:14px;font-family:inherit}
@@ -2513,7 +2514,9 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
     notes.addEventListener("input", () => saveSoon({ notes: notes.value }));
 
     body.append(
-        h("div", { class: "mol-field" }, h("label", {}, "Title"), h("div", { style: { display: "flex", gap: "6px" } }, title, star)),
+        h("div", { class: "mol-field" }, h("label", {}, "Title"), h("div", { style: { display: "flex", gap: "6px" } }, title, star),
+            // Name of the copy in the library folder, to find it there.
+            it.file ? h("div", { class: "mol-hint mol-filename", title: it.file }, it.file.split("/").pop()) : null),
         h("div", { class: "mol-field" }, h("label", {}, "Category"),
             categorySelect(it.category, (v) => { it.category = v; save({ category: v }); })),
         h("div", { class: "mol-field" }, h("label", {}, "Model"), family, familyOptions,
