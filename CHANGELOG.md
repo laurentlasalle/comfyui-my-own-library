@@ -2,6 +2,12 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.11.0 (2026-10-30)
+
+- **Remove parts** and **Delete parts**: click a listed file to preview it over the confirmation (**←** / **→** to go through the list, **Esc** to come back).
+- Segments have their own color (teal): "P2" on their thumbnail in the version strip, "Part 2 of 4 · segment of …" in the detail header, and on the cards.
+- The detail panel shows the name of the copy in the library folder under the title.
+
 ## 0.10.1 (2026-10-30)
 
 - Fixed: an error in the terminal when the library size was computed while copies were being renamed in the background.

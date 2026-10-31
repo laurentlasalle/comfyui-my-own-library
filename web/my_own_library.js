@@ -444,6 +444,10 @@ const CSS = `
 .mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
 .mol-partbadge:not(.final){background:rgba(79,179,169,.92);color:#0f1f1d}
 .mol-filename{user-select:text;word-break:break-all}
+.mol-linkname{cursor:pointer}
+.mol-linkname:hover{color:#fff;text-decoration:underline}
+.mol-zoomover{position:fixed;inset:0;z-index:50}
+.mol-zoomcaption{position:absolute;left:0;right:0;bottom:16px;text-align:center;color:#ddd;font-size:13px;pointer-events:none}
 .mol-dirlink{cursor:pointer}
 .mol-dirlink:hover{color:var(--mol-fg);text-decoration:underline}
 .mol-confirm{background:#171718;color:#ececec;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:20px 22px;max-width:640px;width:90vw;font-size:14px;font-family:inherit}
@@ -2016,6 +2020,32 @@ async function refreshAfterJob() {
     syncLibraryDirSetting();
 }
 
+// Preview over a confirmation dialog: a click on a listed file shows it;
+// Esc or a click beside closes it, ← / → go through the list.
+function previewOver(box, entries, index) {
+    let i = index;
+    const layer = h("div", { class: "mol-zoom mol-zoomover" });
+    const show = () => {
+        const e = entries[i];
+        layer.replaceChildren(
+            h("div", { onclick: (ev) => ev.stopPropagation(), style: { display: "contents" } },
+                e.kind === "video" ? h("video", { src: e.src, controls: true, autoplay: true, loop: true, playsinline: true })
+                    : h("img", { src: e.src })),
+            h("div", { class: "mol-zoomcaption" }, `${i + 1} / ${entries.length} · ${e.label}`),
+            h("button", { class: "mol-iconbtn mol-zoomclose", title: "Close (Esc)", onclick: close }, icon("times")));
+    };
+    const key = (ev) => {
+        if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); close(); }
+        else if (ev.key === "ArrowRight") { i = (i + 1) % entries.length; show(); }
+        else if (ev.key === "ArrowLeft") { i = (i - 1 + entries.length) % entries.length; show(); }
+    };
+    function close() { layer.remove(); box.removeEventListener("keydown", key, true); }
+    layer.addEventListener("click", close);
+    box.addEventListener("keydown", key, true);
+    box.append(layer);
+    show();
+}
+
 // Segments of combined videos whose final is in the library: list them
 // grouped by final video, then delete them (one request per file).
 function deleteParts() {
@@ -2024,9 +2054,20 @@ function deleteParts() {
     const box = h("dialog", { class: "mol-confirm" });
     const close = () => { box.close(); box.remove(); };
     const list = h("div", { class: "mol-confirmlist" });
+    const entries = [];
+    const clickable = (label, title, entry) => {
+        if (!entry) return h("span", { title }, label);
+        const k = entries.push(entry) - 1;
+        return h("span", { title, class: "mol-linkname", onclick: () => previewOver(box, entries, k) }, label);
+    };
+    const isMedia = (rel) => /\.(mp4|webm|mov|mkv|m4v|png|jpe?g|webp|gif)$/i.test(rel);
+    const kindOf = (rel) => (/\.(png|jpe?g|webp|gif)$/i.test(rel) ? "image" : "video");
     for (const g of plan.groups) {
-        list.append(h("div", { class: "grp" }, `${g.final.split("/").pop()} · ${g.parts} part${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
-        for (const f of g.files) list.append(h("div", { class: "row" }, h("span", { title: f.rel }, f.rel), h("span", {}, fmtSize(f.size))));
+        list.append(h("div", { class: "grp" }, clickable(`${g.final.split("/").pop()} · ${g.parts} part${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`, g.final,
+            { kind: "video", src: fileSource({ root: "output", rel: g.final }), label: g.final.split("/").pop() })));
+        for (const f of g.files) list.append(h("div", { class: "row" },
+            clickable(f.rel, f.rel, isMedia(f.rel) ? { kind: kindOf(f.rel), src: fileSource({ root: "output", rel: f.rel }), label: f.rel.split("/").pop() } : null),
+            h("span", {}, fmtSize(f.size))));
         if (g.kind === "easy-media") list.append(h("div", { class: "row" }, h("span", { style: { color: "#9a9a9a" } }, "Kept: project.json, out/"), h("span", {}, "")));
     }
     box.append(
@@ -2062,9 +2103,16 @@ function removeLibraryParts() {
     const box = h("dialog", { class: "mol-confirm" });
     const close = () => { box.close(); box.remove(); };
     const list = h("div", { class: "mol-confirmlist" });
+    const entries = [];
     for (const g of plan.groups) {
         list.append(h("div", { class: "grp" }, `${g.final} · ${g.parts.length} part${g.parts.length > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
-        for (const p of g.parts) list.append(h("div", { class: "row" }, h("span", { title: p.name || p.title }, `Part ${p.index} · ${p.title}`), h("span", {}, fmtSize(p.size))));
+        for (const p of g.parts) {
+            const it = S.items.find((x) => x.id === p.id);
+            const k = it ? entries.push({ kind: it.kind, src: itemFile(it), label: `Part ${p.index} · ${p.title}` }) - 1 : -1;
+            list.append(h("div", { class: "row" },
+                h("span", { title: p.name || p.title, class: k >= 0 ? "mol-linkname" : "", onclick: k >= 0 ? () => previewOver(box, entries, k) : null },
+                    `Part ${p.index} · ${p.title}`), h("span", {}, fmtSize(p.size))));
+        }
     }
     box.append(
         h("h3", {}, `Remove ${plan.count} part${plan.count > 1 ? "s" : ""} from your library?`),
