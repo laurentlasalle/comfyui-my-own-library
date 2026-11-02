@@ -310,7 +310,7 @@ const CSS = `
 .mol-tools i{opacity:.7;padding:2px}
 .mol-tools i:hover{opacity:1}
 .mol-section{display:flex;align-items:center;justify-content:space-between;color:var(--mol-dim);font-size:12px;
-  font-weight:700;padding:20px 20px 0;text-transform:uppercase;min-height:16px}
+  font-weight:700;padding:20px 20px 8px;text-transform:uppercase;min-height:16px}
 .mol-sectionchev{cursor:pointer;margin-left:auto;opacity:.6;transition:opacity .15s,transform .15s;flex:none}
 .mol-sectionchev:hover{opacity:1}
 .mol-sectionchev.closed{transform:rotate(-90deg)}

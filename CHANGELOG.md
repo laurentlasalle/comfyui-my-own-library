@@ -2,6 +2,10 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.12.1 (2026-11-02)
+
+- Fixed: the CHARACTERS and CATEGORIES titles in the left column touched the first item below them; they now have a little space underneath.
+
 ## 0.12.0 (2026-11-02)
 
 - **Characters**: a new classification parallel to categories. Each item can have zero or more characters (edited in the detail panel, same tag-input as categories). Characters appear in their own **CHARACTERS** section in the left column, each with a navigation entry that filters the grid. Character names are shown on card thumbnails before the category chip.
