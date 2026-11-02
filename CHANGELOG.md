@@ -2,13 +2,10 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
-## 0.12.2 (2026-11-02)
-
-- The items of the left column are spaced apart, like in ComfyUI's Browse Templates.
-
 ## 0.12.1 (2026-11-02)
 
 - Fixed: the CHARACTERS and CATEGORIES titles in the left column touched the first item below them; they now have a little space underneath.
+- The items of the left column are spaced apart, like in ComfyUI's Browse Templates.
 
 ## 0.12.0 (2026-11-02)
 
