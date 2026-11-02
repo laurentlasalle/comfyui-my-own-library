@@ -47,7 +47,7 @@ def readable_stem(original_name, item_id):
 
 def _say(text):
     print("[My Own Library] " + text, flush=True)
-SHARED_FIELDS = ("title", "category", "tags", "favorite")
+SHARED_FIELDS = ("title", "category", "characters", "tags", "favorite")
 LIBRARY_VERSION = 1
 
 
@@ -247,6 +247,7 @@ class Library:
                 with open(self.db_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 data.setdefault("categories", [])
+                data.setdefault("characters", [])
                 data.setdefault("items", {})
                 data.setdefault("version", LIBRARY_VERSION)
                 data.setdefault("output_seen", time.time())
@@ -257,7 +258,7 @@ class Library:
                 backup = self.db_path + ".broken-%d" % int(time.time())
                 shutil.copy2(self.db_path, backup)
         # output_seen starts now, so files generated before installation don't count as new.
-        return {"version": LIBRARY_VERSION, "categories": [], "items": {}, "output_seen": time.time(),
+        return {"version": LIBRARY_VERSION, "categories": [], "characters": [], "items": {}, "output_seen": time.time(),
                 "dismissed_suggestions": {}}
 
     def _backfill_signatures(self):
@@ -534,6 +535,7 @@ class Library:
                 "library_dir": self.dir,
                 "version": __version__,
                 "categories": list(self.data["categories"]),
+                "characters": list(self.data.get("characters", [])),
                 "items": items,
                 "duplicates": self.duplicates(),
             }
@@ -794,7 +796,7 @@ class Library:
         return out
 
     def update(self, item_id, fields):
-        allowed = {"title", "category", "tags", "notes", "favorite", "family_override"}
+        allowed = {"title", "category", "characters", "tags", "notes", "favorite", "family_override"}
         with self.lock:
             item = self.data["items"].get(item_id)
             if not item:
@@ -802,7 +804,7 @@ class Library:
             for key, value in fields.items():
                 if key not in allowed:
                     continue
-                if key == "tags":
+                if key in ("tags", "characters"):
                     value = self._clean_tags(value if isinstance(value, list) else [])
                 elif key == "favorite":
                     value = bool(value)
@@ -815,6 +817,9 @@ class Library:
                 item[key] = value
             if item.get("category") and item["category"] not in self.data["categories"]:
                 self.data["categories"].append(item["category"])
+            for char in item.get("characters", []):
+                if char and char not in self.data.get("characters", []):
+                    self.data.setdefault("characters", []).append(char)
             item["modified"] = _now_iso()
             # Title, category, tags and favorite belong to the whole work.
             if item.get("work_id"):
@@ -895,6 +900,39 @@ class Library:
                 raise ValueError("Unknown action")
             self._save()
             return list(self.data["categories"])
+
+    def character(self, action, name="", new_name="", order=None):
+        with self.lock:
+            chars = self.data.setdefault("characters", [])
+            name = (name or "").strip()
+            new_name = (new_name or "").strip()
+            if action == "create":
+                if not name:
+                    raise ValueError("Empty name")
+                if name.lower() not in (c.lower() for c in chars):
+                    chars.append(name)
+            elif action == "rename":
+                if name not in chars or not new_name:
+                    raise ValueError("Unknown character or empty name")
+                if new_name.lower() in (c.lower() for c in chars if c != name):
+                    raise ValueError("A character with that name already exists")
+                chars[chars.index(name)] = new_name
+                for item in self.data["items"].values():
+                    if name in (item.get("characters") or []):
+                        item["characters"] = [new_name if c == name else c for c in item["characters"]]
+            elif action == "delete":
+                if name in chars:
+                    chars.remove(name)
+                for item in self.data["items"].values():
+                    if name in (item.get("characters") or []):
+                        item["characters"] = [c for c in item["characters"] if c != name]
+            elif action == "reorder":
+                if isinstance(order, list) and sorted(order) == sorted(chars):
+                    self.data["characters"] = list(order)
+            else:
+                raise ValueError("Unknown action")
+            self._save()
+            return list(self.data["characters"])
 
     # ------------------------------------------------------------ output cleanup
     def delete_from_output(self, root, rel):

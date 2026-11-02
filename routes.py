@@ -752,3 +752,13 @@ def setup_routes():
         except Exception as e:
             return error(e)
         return web.json_response({"categories": cats})
+
+    @routes.post(PREFIX + "/character")
+    async def post_character(request):
+        body = await request.json()
+        try:
+            chars = await run(library().character, body.get("action"), body.get("name", ""),
+                              body.get("new_name", ""), body.get("order"))
+        except Exception as e:
+            return error(e)
+        return web.json_response({"characters": chars})

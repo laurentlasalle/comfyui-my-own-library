@@ -2,6 +2,15 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.12.0 (2026-11-02)
+
+- **Characters**: a new classification parallel to categories. Each item can have zero or more characters (edited in the detail panel, same tag-input as categories). Characters appear in their own **CHARACTERS** section in the left column, each with a navigation entry that filters the grid. Character names are shown on card thumbnails before the category chip.
+- **CHARACTERS / CATEGORIES section order**: collapsible sections in the left column; collapse state is persisted. A new setting **Sidebar section order** controls which section comes first (Characters first by default).
+- The left column's scrollbar is hidden; scrolling via mouse wheel still works. The version/library-dir footer stays fixed at the bottom with a gradient fade above it.
+- **Import** (was "Output"): the nav item and view title are renamed. A permanent banner at the top of the Import view explains what the view is for.
+- Player volume and mute state persist across media items within the session: opening a new file picks up where the previous one left off.
+- Sidebar nav items use rounded styling (`border-radius: 8px`, `margin: 0 8px`) matching ComfyUI's Browse Templates panel.
+
 ## 0.11.0 (2026-10-30)
 
 - **Remove parts** and **Delete parts**: click a listed file to preview it over the confirmation (**←** / **→** to go through the list, **Esc** to come back).

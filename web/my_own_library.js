@@ -57,6 +57,20 @@ function h(tag, attrs = {}, ...children) {
 
 const icon = (name) => h("i", { class: `pi pi-${name}` });
 
+// ----------------------------------------------------------------- player state
+// Persisted across navigation within the session: volume and mute state.
+let _playerVolume = 1.0;
+let _playerMuted = false;
+
+function applyPlayerState(media) {
+    media.volume = _playerVolume;
+    media.muted = _playerMuted;
+    media.addEventListener("volumechange", () => {
+        _playerVolume = media.volume;
+        _playerMuted = media.muted;
+    });
+}
+
 // ---------------------------------------------------------------- settings
 // Shown in ComfyUI's own Settings panel (gear), section "My Own Library", and
 // saved in the ComfyUI user profile.
@@ -67,8 +81,9 @@ const SET = {
     removeAfter: "MyOwnLibrary.Output.RemoveAfterAdding",
     similarity: "MyOwnLibrary.Versions.Similarity",
     libraryDir: "MyOwnLibrary.Files.LibraryDirectory",
+    charOrder: "MyOwnLibrary.Sidebar.SectionOrder",
 };
-const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "" };
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first" };
 
 function getSetting(id) {
     try {
@@ -109,6 +124,10 @@ const SETTINGS = [
         type: "text", defaultValue: "", onChange: (v) => libraryDirChanged(v) },
     { id: SET.removeAfter, category: ["My Own Library", "File Management", "Remove after adding"], name: "Remove from output after adding (default)", sortOrder: 10,
         tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
+    { id: SET.charOrder, category: ["My Own Library", "Options", "Section order"], name: "Sidebar section order", sortOrder: 45,
+        tooltip: "Whether CHARACTERS or CATEGORIES appears first in the left column.",
+        type: "combo", options: ["Characters first", "Categories first"], defaultValue: "Characters first",
+        onChange: rerender },
 ];
 
 // ----------------------------------------------------------- library folder
@@ -275,12 +294,13 @@ const CSS = `
 .mol-root{display:flex;height:100%;outline:none}
 /* Left column: same measures as Templates (LeftSidePanel, NavItem, NavTitle) */
 .mol-nav{width:224px;flex:none;background:var(--mol-panel);
-  display:flex;flex-direction:column;gap:4px;padding:0 12px 12px;overflow:auto;box-sizing:border-box}
-.mol-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;height:72px;flex:none;padding-left:12px;margin-bottom:-4px}
-.mol-navitem{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:6px;cursor:pointer;
+  display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden;box-sizing:border-box}
+.mol-navscroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:0 0 8px;scrollbar-width:none;min-height:0}
+.mol-navscroll::-webkit-scrollbar{display:none}
+.mol-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;height:72px;flex:none;padding-left:20px;margin-bottom:-4px}
+.mol-navitem{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 8px;border-radius:8px;cursor:pointer;
   color:var(--mol-fg);user-select:none;font-size:14px;line-height:20px}
 .mol-navitem>i{font-size:14px}
-.mol-section ~ .mol-navitem{margin-top:4px}
 .mol-navitem:hover{background:var(--mol-hover)}
 .mol-navitem.active{background:#3c3d42}
 .mol-navitem .mol-count{margin-left:auto;color:var(--mol-dim);font-size:12px}
@@ -290,11 +310,12 @@ const CSS = `
 .mol-tools i{opacity:.7;padding:2px}
 .mol-tools i:hover{opacity:1}
 .mol-section{display:flex;align-items:center;justify-content:space-between;color:var(--mol-dim);font-size:12px;
-  font-weight:700;padding:20px 12px 0;text-transform:uppercase;min-height:16px}
-.mol-section{padding-right:16px}
-.mol-addcat{font-size:12px;padding:4px;margin:-4px -4px -4px 0;min-width:0;min-height:0;color:var(--mol-fg);line-height:1}
-.mol-addcat i{font-size:12px}
-.mol-navfoot{margin-top:auto;padding:16px 10px 2px;color:var(--mol-dim);font-size:11px;word-break:break-all;line-height:1.5}
+  font-weight:700;padding:20px 20px 0;text-transform:uppercase;min-height:16px}
+.mol-sectionchev{cursor:pointer;margin-left:auto;opacity:.6;transition:opacity .15s,transform .15s;flex:none}
+.mol-sectionchev:hover{opacity:1}
+.mol-sectionchev.closed{transform:rotate(-90deg)}
+.mol-navfoot{flex:none;padding:12px 12px 8px;color:var(--mol-dim);font-size:11px;word-break:break-all;line-height:1.5;
+  background:linear-gradient(transparent,var(--mol-panel) 30%);margin-top:-24px;padding-top:28px}
 .mol-inline-input{width:100%;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
 .mol-main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
 /* Header: 72 px high, 24 px sides, search 36 px high up to 384 px, 40 px close button */
@@ -503,7 +524,9 @@ const CSS = `
 .mol-suggest-item{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border-radius:7px;cursor:pointer}
 .mol-suggest-item.active,.mol-suggest-item:hover{background:#363636}
 .mol-suggest-item .mol-count{color:var(--mol-dim);font-size:12px}
-.mol-hint{color:var(--mol-dim);font-size:12px;margin-top:6px}
+.mol-hint{color:var(--mol-dim);font-size:13px;margin-top:6px}
+.mol-import-banner .mol-sugtext{font-size:13px;padding:2px 0}
+.mol-chartag{gap:4px}
 .mol-tagsbox input{flex:1;min-width:120px;background:none;border:0;outline:0;color:var(--mol-fg);font:inherit;padding:3px}
 .mol-prompt{background:var(--mol-input);border:1px solid var(--mol-border);border-radius:9px;padding:10px 12px;white-space:pre-wrap;
   max-height:220px;overflow:auto;line-height:1.5;font-size:13px}
@@ -535,7 +558,7 @@ function injectCSS() {
 
 const S = {
     dialog: null,
-    view: "all",          // all | recent | favorites | uncategorized | output | cat:<name>
+    view: "all",          // all | recent | favorites | uncategorized | output | cat:<name> | char:<name>
     kind: "all",          // all | image | video
     search: "",
     tags: new Set(),
@@ -543,6 +566,9 @@ const S = {
     sort: loadPref("sort", "created-desc"),
     items: [],
     categories: [],
+    characters: [],
+    charsOpen: loadPref("charsOpen", "1") === "1",
+    catsOpen: loadPref("catsOpen", "1") === "1",
     libraryDir: "",
     output: { files: [], total: 0, notAdded: 0, loading: false },
     selected: new Set(),    // output files selected, as "root|rel" keys
@@ -564,12 +590,14 @@ const S = {
     lastVisit: 0,           // previous visit of the Output view (Unix time)
     badge: 0,
     editingCategory: null,  // name being renamed, or "" for a new one
+    editingCharacter: null, // name being renamed, or "" for a new one
     detail: null,           // {type: "item"|"file", list, index}
 };
 
 function applySnapshot(data) {
     S.items = data.items || [];
     S.categories = data.categories || [];
+    S.characters = data.characters || [];
     S.libraryDir = data.library_dir || "";
     S.version = data.version || "";
     S.duplicates = data.duplicates || [];
@@ -702,6 +730,7 @@ function filteredItems() {
         if (S.view === "uncategorized" && it.category) return false;
         if (S.view === "recent" && new Date(it.added).getTime() < recentLimit) return false;
         if (S.view.startsWith("cat:") && it.category !== S.view.slice(4)) return false;
+        if (S.view.startsWith("char:") && !(it.characters || []).includes(S.view.slice(5))) return false;
         if (S.kind !== "all" && it.kind !== S.kind) return false;
         if (S.hideLibParts && it.part) return false;
         if (S.families.size && !familiesOf(it).some((f) => S.families.has(f))) return false;
@@ -710,7 +739,7 @@ function filteredItems() {
             for (const t of S.tags) if (!own.has(t)) return false;
         }
         if (q) {
-            const hay = [it.title, it.notes, it.category, ...(it.tags || []),
+            const hay = [it.title, it.notes, it.category, ...(it.characters || []), ...(it.tags || []),
                 ...(it.summary?.positive || []), ...(it.summary?.negative || []), ...(it.summary?.text || []),
                 ...(it.summary?.models || []), ...(it.summary?.loras || []), it.source?.name, ...familiesOf(it)]
                 .join("\n").toLowerCase();
@@ -967,22 +996,25 @@ function render() {
     if (S.dialog.open && !S.dialog.contains(document.activeElement)) root.focus({ preventScroll: true });
 }
 
-function navItem(id, label, iconName, count, tools) {
+function navItem(id, label, iconName, count, tools, extraIconClass) {
+    const iconEl = extraIconClass
+        ? h("i", { class: extraIconClass, style: { fontSize: "14px", flex: "none" } })
+        : icon(iconName);
     const el = h("div", {
         class: "mol-navitem" + (S.view === id ? " active" : ""),
         onclick: () => setView(id),
-    }, icon(iconName), h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, label),
+    }, iconEl, h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, label),
         tools || null, count !== undefined ? h("span", { class: "mol-count" }, count) : null);
     return el;
 }
 
-function categoryInput(initial, onDone) {
-    const input = h("input", { class: "mol-inline-input", type: "text", value: initial, placeholder: "Category name" });
+function navNameInput(initial, onDone, clearEditing, placeholder = "Name") {
+    const input = h("input", { class: "mol-inline-input", type: "text", value: initial, placeholder });
     let done = false;
     const finish = async (save) => {
         if (done) return;
         done = true;
-        S.editingCategory = null;
+        clearEditing();
         if (save && input.value.trim() && input.value.trim() !== initial) await onDone(input.value.trim());
         else render();
     };
@@ -994,6 +1026,14 @@ function categoryInput(initial, onDone) {
     input.addEventListener("blur", () => finish(true));
     setTimeout(() => { input.focus(); input.select(); }, 0);
     return h("div", { style: { padding: "4px 6px" } }, input);
+}
+
+function categoryInput(initial, onDone) {
+    return navNameInput(initial, onDone, () => { S.editingCategory = null; }, "Category name");
+}
+
+function characterInput(initial, onDone) {
+    return navNameInput(initial, onDone, () => { S.editingCharacter = null; render(); }, "Character name");
 }
 
 async function categoryAction(action, name, new_name) {
@@ -1014,14 +1054,57 @@ async function categoryAction(action, name, new_name) {
     render();
 }
 
+async function characterAction(action, name, new_name) {
+    try {
+        const data = await call("/character", { action, name, new_name });
+        S.characters = data.characters;
+        if (action === "rename") {
+            for (const it of S.items) if ((it.characters || []).includes(name))
+                it.characters = it.characters.map((c) => c === name ? new_name : c);
+            if (S.view === "char:" + name) S.view = "char:" + new_name;
+        }
+        if (action === "delete") {
+            for (const it of S.items) if ((it.characters || []).includes(name))
+                it.characters = it.characters.filter((c) => c !== name);
+            if (S.view === "char:" + name) S.view = "all";
+        }
+    } catch (e) {
+        toast("Character", e.message, "error");
+    }
+    S.editingCharacter = null;
+    render();
+}
+
 function renderNav() {
     // Counts are in works: a creation with its versions counts once.
     const works = groupWorks(S.items);
-    const counts = {};
-    for (const w of works) counts[w.cover.category || ""] = (counts[w.cover.category || ""] || 0) + 1;
+    const catCounts = {};
+    for (const w of works) catCounts[w.cover.category || ""] = (catCounts[w.cover.category || ""] || 0) + 1;
+    const charCounts = {};
+    for (const w of works) for (const ch of (w.cover.characters || [])) charCounts[ch] = (charCounts[ch] || 0) + 1;
     const recentLimit = Date.now() - RECENT_DAYS * 86400000;
     const recent = works.filter((w) => w.members.some((m) => new Date(m.added).getTime() >= recentLimit)).length;
 
+    // Characters section items
+    const charItems = S.characters.map((name) => {
+        if (S.editingCharacter === name) {
+            return characterInput(name, (v) => characterAction("rename", name, v));
+        }
+        const tools = h("span", { class: "mol-tools" },
+            h("i", { class: "pi pi-pencil", title: "Rename", onclick: (e) => { e.stopPropagation(); S.editingCharacter = name; render(); } }),
+            h("i", {
+                class: "pi pi-trash", title: "Delete character (creations become unassigned)",
+                onclick: (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete the character "${name}"?\nIts ${charCounts[name] || 0} creation(s) will be unassigned. Nothing is deleted from the library.`))
+                        characterAction("delete", name);
+                },
+            }));
+        return navItem("char:" + name, name, null, charCounts[name] || 0, tools, "icon-[lucide--user]");
+    });
+    if (S.editingCharacter === "") charItems.push(characterInput("", (v) => characterAction("create", v)));
+
+    // Categories section items
     const cats = S.categories.map((name) => {
         if (S.editingCategory === name) {
             return categoryInput(name, (v) => categoryAction("rename", name, v));
@@ -1032,27 +1115,40 @@ function renderNav() {
                 class: "pi pi-trash", title: "Delete category (creations become uncategorized)",
                 onclick: (e) => {
                     e.stopPropagation();
-                    if (confirm(`Delete the category "${name}"?\nIts ${counts[name] || 0} creation(s) will become uncategorized. Nothing is deleted from the library.`))
+                    if (confirm(`Delete the category "${name}"?\nIts ${catCounts[name] || 0} creation(s) will become uncategorized. Nothing is deleted from the library.`))
                         categoryAction("delete", name);
                 },
             }));
-        return navItem("cat:" + name, name, "folder", counts[name] || 0, tools);
+        return navItem("cat:" + name, name, "folder", catCounts[name] || 0, tools);
     });
     if (S.editingCategory === "") cats.push(categoryInput("", (v) => categoryAction("create", v)));
 
-    return h("nav", { class: "mol-nav" },
-        h("div", { class: "mol-brand" }, icon("bookmark"), "My Own Library"),
-        navItem("all", "All Creations", "th-large", works.length),
-        navItem("recent", "Recent", "clock", recent),
-        navItem("favorites", "Favorites", "star", works.filter((w) => w.cover.favorite).length),
-        navItem("uncategorized", "Uncategorized", "inbox", counts[""] || 0),
-        S.duplicates?.length || S.view === "duplicates" ? navItem("duplicates", "Duplicates", "copy", S.duplicates?.length || 0) : null,
-        h("div", { class: "mol-section" }, "Output folder"),
-        navItem("output", "Output", "download", S.output.notAdded ? `${S.output.notAdded} new` : undefined),
+    const charSection = [
+        h("div", { class: "mol-section" }, "Characters",
+            h("i", { class: "pi pi-chevron-down mol-sectionchev" + (S.charsOpen ? "" : " closed"),
+                onclick: () => { S.charsOpen = !S.charsOpen; savePref("charsOpen", S.charsOpen ? "1" : "0"); render(); } })),
+        ...(S.charsOpen ? charItems : []),
+    ];
+    const catSection = [
         h("div", { class: "mol-section" }, "Categories",
-            h("button", { class: "mol-iconbtn mol-addcat", title: "New category",
-                onclick: () => { S.editingCategory = ""; render(); } }, icon("plus"))),
-        ...cats,
+            h("i", { class: "pi pi-chevron-down mol-sectionchev" + (S.catsOpen ? "" : " closed"),
+                onclick: () => { S.catsOpen = !S.catsOpen; savePref("catsOpen", S.catsOpen ? "1" : "0"); render(); } })),
+        ...(S.catsOpen ? cats : []),
+    ];
+
+    const charsFirst = getSetting(SET.charOrder) !== "Categories first";
+    const sections = charsFirst ? [...charSection, ...catSection] : [...catSection, ...charSection];
+
+    return h("nav", { class: "mol-nav" },
+        h("div", { class: "mol-navscroll" },
+            h("div", { class: "mol-brand" }, icon("bookmark"), "My Own Library"),
+            navItem("all", "All Creations", "th-large", works.length),
+            navItem("recent", "Recent", "clock", recent),
+            navItem("favorites", "Favorites", "star", works.filter((w) => w.cover.favorite).length),
+            navItem("uncategorized", "Uncategorized", "inbox", catCounts[""] || 0),
+            S.duplicates?.length || S.view === "duplicates" ? navItem("duplicates", "Duplicates", "copy", S.duplicates?.length || 0) : null,
+            navItem("output", "Import", "download", S.output.notAdded ? `${S.output.notAdded} new` : undefined),
+            ...sections),
         h("div", { class: "mol-navfoot", title: "Change it in ComfyUI/user/my_own_library.config.json" },
             S.version ? h("div", { class: "mol-version" }, `My Own Library ${S.version}`) : null,
             h("span", { class: "mol-dirlink", title: "Change it in ComfyUI's Settings › My Own Library › File Management",
@@ -1064,8 +1160,9 @@ function viewTitle() {
     if (S.view === "recent") return `Added in the last ${RECENT_DAYS} days`;
     if (S.view === "favorites") return "Favorites";
     if (S.view === "uncategorized") return "Uncategorized";
-    if (S.view === "output") return "Output folder";
+    if (S.view === "output") return "Import";
     if (S.view === "duplicates") return "Duplicates";
+    if (S.view.startsWith("char:")) return S.view.slice(5);
     return S.view.slice(4);
 }
 
@@ -1633,6 +1730,7 @@ function renderItemGrid() {
             familyStack(familiesOf(it)));
         attachHoverPlay(thumb, it.kind, itemFile(it));
         const chips = [];
+        (it.characters || []).slice(0, 2).forEach((c) => chips.push(h("span", { class: "mol-tag mol-chartag" }, h("i", { class: "icon-[lucide--user]", style: { fontSize: "11px" } }), c)));
         if (it.category) chips.push(h("span", { class: "mol-tag" }, icon("folder"), it.category));
         (it.tags || []).slice(0, 2).forEach((t) => chips.push(h("span", { class: "mol-tag" }, t)));
         if ((it.tags || []).length > 2) chips.push(h("span", { class: "mol-tag" }, `+${it.tags.length - 2}`));
@@ -1742,6 +1840,9 @@ function renderSkippedDuplicates() {
 
 function renderOutputGrid() {
     const wrap = h("div", { class: "mol-grid-wrap" });
+    wrap.append(h("div", { class: "mol-suggestion mol-import-banner" },
+        h("div", { class: "mol-sugtext" },
+            "Files in your ", h("code", {}, "output/"), " directory. Pick one or more to bring into your library, where you can organize, rate, and annotate them.")));
     const skipped = renderSkippedDuplicates();
     if (skipped) wrap.append(skipped);
     const files = S.output.files;
@@ -2294,11 +2395,16 @@ function previewEl(kind, src, thumb) {
     if (kind === "audio") {
         const wave = h("img", { src: thumb, draggable: "false", class: "mol-wave" });
         wave.onerror = () => wave.replaceWith(h("div", { class: "mol-noimg", style: { height: "220px" } }, icon("volume-up")));
-        return h("div", { class: "mol-audio" }, wave, h("audio", { src, controls: true, autoplay: true }));
+        const audio = h("audio", { src, controls: true, autoplay: true });
+        applyPlayerState(audio);
+        return h("div", { class: "mol-audio" }, wave, audio);
     }
-    return kind === "video"
-        ? h("video", { src, controls: true, autoplay: true, loop: true, playsinline: true })
-        : h("img", { src, draggable: "false" });
+    if (kind === "video") {
+        const video = h("video", { src, controls: true, autoplay: true, loop: true, playsinline: true });
+        applyPlayerState(video);
+        return video;
+    }
+    return h("img", { src, draggable: "false" });
 }
 
 // New thumbnail (and Reset thumbnail, only once one was chosen) over the player.
@@ -2544,10 +2650,10 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
             Object.assign(it, res.item);
             const idx = S.items.findIndex((x) => x.id === it.id);
             if (idx >= 0) S.items[idx] = it;
-            // Title, category, tags and favorite are shared by all versions of a work.
+            // Title, category, characters, tags and favorite are shared by all versions of a work.
             for (const m of members) {
                 if (m === it) continue;
-                for (const k of ["title", "category", "tags", "favorite"]) if (k in fields) m[k] = it[k];
+                for (const k of ["title", "category", "characters", "tags", "favorite"]) if (k in fields) m[k] = it[k];
             }
             S.categories = res.categories;
             saved.textContent = "Saved";
@@ -2577,12 +2683,20 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
     const notes = h("textarea", { placeholder: "What worked, what to try next" }, it.notes || "");
     notes.addEventListener("input", () => saveSoon({ notes: notes.value }));
 
+    const charTags = tagEditor(it.characters || [], (v) => {
+        it.characters = v;
+        save({ characters: v });
+        // Keep S.characters list in sync for new names
+        for (const c of v) if (!S.characters.includes(c)) S.characters.push(c);
+    }, { placeholder: "Add a character, then Enter" });
+
     body.append(
         h("div", { class: "mol-field" }, h("label", {}, "Title"), h("div", { style: { display: "flex", gap: "6px" } }, title, star),
             // Name of the copy in the library folder, to find it there.
             it.file ? h("div", { class: "mol-hint mol-filename", title: it.file }, it.file.split("/").pop()) : null),
         h("div", { class: "mol-field" }, h("label", {}, "Category"),
             categorySelect(it.category, (v) => { it.category = v; save({ category: v }); })),
+        h("div", { class: "mol-field" }, h("label", {}, "Characters"), charTags.el),
         h("div", { class: "mol-field" }, h("label", {}, "Model"), family, familyOptions,
             h("div", { class: "mol-hint" }, detected ? "Leave empty to use the detected models. Several: separate them with commas, in order of execution."
                 : "No model family recognized in this file.")),
