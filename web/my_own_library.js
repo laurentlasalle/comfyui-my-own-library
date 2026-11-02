@@ -298,7 +298,7 @@ const CSS = `
 .mol-navscroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:0 0 8px;scrollbar-width:none;min-height:0}
 .mol-navscroll::-webkit-scrollbar{display:none}
 .mol-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;height:72px;flex:none;padding-left:20px;margin-bottom:-4px}
-.mol-navitem{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 8px;border-radius:8px;cursor:pointer;
+.mol-navitem{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 8px 4px;border-radius:8px;cursor:pointer;
   color:var(--mol-fg);user-select:none;font-size:14px;line-height:20px}
 .mol-navitem>i{font-size:14px}
 .mol-navitem:hover{background:var(--mol-hover)}
