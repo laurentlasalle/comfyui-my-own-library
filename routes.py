@@ -17,7 +17,7 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-from .store import Library
+from .store import Library, Kept
 
 log = logging.getLogger("my_own_library")
 PREFIX = "/my_own_library"
@@ -87,7 +87,7 @@ class Job:
         c = self.state["counts"]
         parts = []
         for key, label in (("copied", "copied"), ("added", "added"), ("skipped", "skipped as duplicates"), ("already", "already in library"),
-                           ("removed", "removed from output"), ("deleted", "deleted from output"),
+                           ("removed", "removed from output"), ("kept", "kept in output"), ("deleted", "deleted from output"),
                            ("removed_lib", "removed from library"), ("error", "errors")):
             if c.get(key):
                 parts.append("%d %s" % (c[key], label))
@@ -199,6 +199,59 @@ def check_library_dir(path):
             pass
     out["ok"] = True
     return out
+
+
+def is_local_request(request):
+    """True when the request comes from the computer running ComfyUI itself."""
+    ip = request.remote or ""
+    return ip in ("127.0.0.1", "::1", "localhost") or ip.startswith("::ffff:127.")
+
+
+def browse_folders(path):
+    """Subfolders of a folder, for the folder picker of the Library directory setting.
+
+    A path that doesn't exist falls back to its nearest existing parent; an empty
+    one starts at the user's home. Only folders are listed, never files."""
+    path = os.path.abspath(os.path.expanduser((path or "").strip().strip('"') or "~"))
+    while not os.path.isdir(path):
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    dirs = []
+    with os.scandir(path) as it:
+        for entry in it:
+            try:
+                if entry.is_dir() and entry.name not in ("$RECYCLE.BIN", "System Volume Information"):
+                    dirs.append(entry.name)
+            except OSError:
+                continue
+    dirs.sort(key=str.lower)
+    parent = os.path.dirname(path.rstrip("\\/")) if path.rstrip("\\/") else path
+    if os.name == "nt":
+        listdrives = getattr(os, "listdrives", None)
+        if listdrives:
+            drives = list(listdrives())
+        else:
+            import string
+            drives = ["%s:\\" % c for c in string.ascii_uppercase if os.path.exists("%s:\\" % c)]
+    else:
+        drives = ["/"]
+    return {"path": path, "parent": parent if parent and parent != path else None, "dirs": dirs, "drives": drives}
+
+
+def make_folder(path, name):
+    """Create the folder `name` inside `path` (one level, no path separators)."""
+    name = (name or "").strip()
+    if not name or name in (".", "..") or any(c in name for c in '\\/:*?"<>|'):
+        raise ValueError("Type a folder name without \\ / : * ? \" < > |")
+    if not os.path.isdir(path):
+        raise ValueError("The parent folder does not exist")
+    new = os.path.join(path, name)
+    if os.path.exists(new):
+        raise ValueError("%s already exists here" % name)
+    os.mkdir(new)
+    return new
 
 
 def library_files(lib):
@@ -355,7 +408,7 @@ def setup_routes():
         body = await request.json()
         lib = library()
         added, existing, duplicates, errors = [], [], [], []
-        removed, freed = [], 0
+        removed, kept, freed = [], [], 0
         job = Job(body, "Moving to library" if body.get("remove_after") else "Adding to library")
         import time
         for entry in body.get("files", []):
@@ -379,18 +432,23 @@ def setup_routes():
                 continue
             if body.get("remove_after") and entry.get("root", "output") == "output":
                 try:
-                    n = await run(lib.delete_from_output, "output", entry["rel"])
+                    n = await run(lib.delete_from_output, "output", entry["rel"], True,
+                                  bool(body.get("allow_no_workflow")))
                     freed += n
                     job.freed(n)
                     job.step_quiet("removed")
                     _say("  removed from output: %s (%s)" % (name, _fmt_size(n)))
                     removed.append(entry["rel"])
+                except Kept as e:
+                    kept.append({"rel": entry["rel"], "reason": str(e)})
+                    job.step_quiet("kept")
+                    _say("  kept in output: %s (%s)" % (name, e))
                 except Exception as e:
                     errors.append({"rel": entry.get("rel"), "error": "Added, but not removed from output: %s" % e})
                     _say("  not removed from output: %s (%s)" % (name, e))
         job.finish(bool(body.get("cancelled")))
         return web.json_response({"added": added, "existing": existing, "duplicates": duplicates, "errors": errors,
-                                  "removed": removed, "freed": freed})
+                                  "removed": removed, "kept": kept, "freed": freed})
 
     @routes.post(PREFIX + "/duplicates/merge")
     async def post_duplicates_merge(request):
@@ -445,6 +503,28 @@ def setup_routes():
         lib = library()
         size = await run(lambda: sum(f["size"] for f in library_files(lib)))
         return web.json_response({"dir": lib.dir, "size": size})
+
+    @routes.get(PREFIX + "/browse")
+    async def get_browse(request):
+        """Folder picker of the Library directory setting. Local connections only:
+        with --listen, other computers must not be able to walk through the disks."""
+        if not is_local_request(request):
+            return error("Browsing folders is only available from the computer running ComfyUI", 403)
+        try:
+            return web.json_response(await run(browse_folders, request.query.get("path", "")))
+        except Exception as e:
+            return error(e)
+
+    @routes.post(PREFIX + "/browse/new")
+    async def post_browse_new(request):
+        if not is_local_request(request):
+            return error("Creating folders is only available from the computer running ComfyUI", 403)
+        body = await request.json()
+        try:
+            new = await run(make_folder, os.path.abspath(body.get("path", "")), body.get("name", ""))
+        except Exception as e:
+            return error(e)
+        return web.json_response({"path": new})
 
     @routes.post(PREFIX + "/library/dir/check")
     async def post_library_dir_check(request):

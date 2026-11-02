@@ -48,6 +48,11 @@ def readable_stem(original_name, item_id):
 def _say(text):
     print("[My Own Library] " + text, flush=True)
 SHARED_FIELDS = ("title", "category", "characters", "tags", "favorite")
+STABLE_SECONDS = 10  # an output file modified more recently than this is not removed after adding
+
+
+class Kept(ValueError):
+    """An output file that is deliberately left in place (it may not be final)."""
 LIBRARY_VERSION = 1
 
 
@@ -935,9 +940,14 @@ class Library:
             return list(self.data["characters"])
 
     # ------------------------------------------------------------ output cleanup
-    def delete_from_output(self, root, rel):
+    def delete_from_output(self, root, rel, protect=False, allow_no_workflow=False):
         """Permanently delete an output file that is safely in the library.
-        Returns the number of bytes freed. Refuses anything else."""
+        Returns the number of bytes freed. Refuses anything else.
+
+        With protect (the "remove after adding" path), the file is also kept,
+        by raising Kept, when it may not be final: modified a few seconds ago,
+        a video never closed by its writer, or no workflow could be read from
+        it (unless allow_no_workflow)."""
         if root != "output":
             raise ValueError("Only files of the output folder can be deleted")
         full = self.root_path(root, rel)
@@ -961,6 +971,18 @@ class Library:
             same = (fp["sha"] and fp["sha"] == item.get("sha")) or (fp["chash"] and fp["chash"] == item.get("chash"))
             if not same:
                 raise ValueError("%s no longer matches its library copy, nothing deleted" % rel)
+        if protect:
+            age = time.time() - os.path.getmtime(full)
+            if age < STABLE_SECONDS and item.get("kind") != "image":  # images are written in one go
+                raise Kept("it was modified %d s ago and may still be written" % max(0, age))
+            why = md.mp4_unfinished(full)
+            if why:
+                raise Kept("the video is not finalized yet (%s). A batch job may still be running, or it was cancelled" % why)
+            why = md.mp4_unfinished(copy)
+            if why:
+                raise Kept("the library copy is incomplete (%s)" % why)
+            if not (item.get("has_workflow") or item.get("has_prompt")) and not allow_no_workflow:
+                raise Kept("no workflow was found in it")
         freed = 0
         comp = md.companion_png(full)
         os.remove(full)

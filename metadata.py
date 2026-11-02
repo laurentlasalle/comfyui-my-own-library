@@ -223,6 +223,27 @@ def _iter_atoms(f, start, end):
         pos += size
 
 
+def mp4_unfinished(path):
+    """Why an MP4-like file looks unfinished, or None when it looks complete.
+
+    An MP4 only becomes playable when its writer closes it and adds the 'moov'
+    index. A file still being written (for instance by a batch job that keeps
+    ffmpeg open between passes) or left by a cancelled job has none. Only the
+    top-level atom headers are read, a few bytes each. Other formats, and
+    files that can't be read, give None."""
+    if os.path.splitext(path)[1].lower() not in MP4_LIKE:
+        return None
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            for atype, _s, _e in _iter_atoms(f, 0, size):
+                if atype == b"moov":
+                    return None
+    except OSError:
+        return None
+    return "no 'moov' index, the file was never closed by its writer"
+
+
 def _mp4_tags(path):
     """Return the text tags of an MP4/MOV file as a dict.
 

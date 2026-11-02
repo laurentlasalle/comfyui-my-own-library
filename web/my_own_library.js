@@ -82,8 +82,9 @@ const SET = {
     similarity: "MyOwnLibrary.Versions.Similarity",
     libraryDir: "MyOwnLibrary.Files.LibraryDirectory",
     charOrder: "MyOwnLibrary.Sidebar.SectionOrder",
+    removeNoWorkflow: "MyOwnLibrary.Output.RemoveWithoutWorkflow",
 };
-const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first" };
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first", [SET.removeNoWorkflow]: false };
 
 function getSetting(id) {
     try {
@@ -121,9 +122,12 @@ const SETTINGS = [
         onChange: async (v) => { S.similarity = String(v || "Normal").toLowerCase(); S.suggestionIndex = 0; if (S.dialog?.open) { await loadSuggestions(); render(); } } },
     { id: SET.libraryDir, category: ["My Own Library", "File Management", "Library directory"], name: "Library directory", sortOrder: 20,
         tooltip: "Folder where your library keeps its copies, thumbnails and data. After changing it, you choose to move your library there or to use that folder as it is.",
-        type: "text", defaultValue: "", onChange: (v) => libraryDirChanged(v) },
+        type: libraryDirField, defaultValue: "", onChange: (v) => libraryDirChanged(v) },
     { id: SET.removeAfter, category: ["My Own Library", "File Management", "Remove after adding"], name: "Remove from output after adding (default)", sortOrder: 10,
         tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
+    { id: SET.removeNoWorkflow, category: ["My Own Library", "File Management", "Remove without workflow"], name: "Also remove files without a workflow", sortOrder: 5,
+        tooltip: "When off, a file whose workflow could not be read stays in the output folder after being added, even if \"Remove from output after adding\" is ticked. Turn on if you don't need the workflow of such files (segments, images saved without it).",
+        type: "boolean", defaultValue: false },
     { id: SET.charOrder, category: ["My Own Library", "Options", "Section order"], name: "Sidebar section order", sortOrder: 45,
         tooltip: "Whether CHARACTERS or CATEGORIES appears first in the left column.",
         type: "combo", options: ["Characters first", "Categories first"], defaultValue: "Characters first",
@@ -236,6 +240,86 @@ function openLibrarySettings() {
     toast("Library directory", "Open ComfyUI's Settings (gear icon), section My Own Library, File Management.", "info");
 }
 
+// How the Library directory setting is drawn in ComfyUI's Settings: a folder icon
+// (opens the folder picker below) followed by a wide text field. ComfyUI calls this
+// with (name, setter, value) and puts the returned element in the setting's row.
+function libraryDirField(name, setter, value) {
+    injectCSS();
+    const input = h("input", { type: "text", class: "mol-dirinput", spellcheck: "false", value: value || "" });
+    const commit = () => { const v = input.value.trim(); if (v && v !== (value || "")) setter(v); };
+    input.addEventListener("change", commit);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+    const browse = h("button", { type: "button", class: "mol-dirbtn", title: "Browse for a folder",
+        onclick: () => folderPicker(input.value.trim() || serverDir, (p) => { input.value = p; commit(); }) },
+        h("i", { class: "pi pi-folder-open" }));
+    return h("div", { class: "mol-dirrow" }, browse, input);
+}
+
+// Folder picker: drives, subfolders, Up, New folder, Select this folder. The folders
+// are listed by the server (local connections only); nothing is changed until the
+// chosen folder goes through the usual check and confirmation of the setting.
+function folderPicker(startPath, onPick) {
+    injectCSS();
+    let cur = null;
+    const box = h("dialog", { class: "mol-confirm mol-picker" });
+    const close = () => { box.close(); box.remove(); };
+    const pathInput = h("input", { type: "text", spellcheck: "false" });
+    const drives = h("div", { class: "mol-drives" });
+    const list = h("div", { class: "mol-folders" });
+    const newInput = h("input", { type: "text", placeholder: "New folder name", spellcheck: "false" });
+    const newRow = h("div", { class: "mol-pathrow", style: { display: "none" } }, newInput,
+        h("button", { class: "mol-btn", onclick: () => createFolder() }, "Create"));
+    const upBtn = h("button", { class: "mol-btn", disabled: true, title: "Go to the parent folder",
+        onclick: () => { if (cur?.parent) go(cur.parent); } }, icon("arrow-up"), "Up");
+    const newBtn = h("button", { class: "mol-btn", title: "Create a folder here",
+        onclick: () => { newRow.style.display = "flex"; newInput.value = ""; newInput.focus(); } }, icon("plus"), "New folder");
+    const selectBtn = h("button", { class: "mol-btn primary", disabled: true, onclick: () => { const p = cur.path; close(); onPick(p); } },
+        "Select this folder");
+    const child = (base, name) => base + (/[\\/]$/.test(base) ? "" : (base.includes("\\") ? "\\" : "/")) + name;
+
+    async function go(path) {
+        try {
+            const d = await call(`/browse?${new URLSearchParams({ path })}`);
+            cur = d;
+            pathInput.value = d.path;
+            upBtn.disabled = !d.parent;
+            selectBtn.disabled = false;
+            newRow.style.display = "none";
+            drives.replaceChildren(...(d.drives.length > 1
+                ? d.drives.map((dr) => h("button", { class: "mol-btn", onclick: () => go(dr) }, dr.replace(/[\\/]$/, ""))) : []));
+            list.replaceChildren(...(d.dirs.length
+                ? d.dirs.map((n) => h("div", { class: "mol-folder", onclick: () => go(child(d.path, n)) }, icon("folder"), n))
+                : [h("div", { class: "mol-folderempty" }, "No subfolders")]));
+            list.scrollTop = 0;
+        } catch (e) {
+            toast("Folders", e.message, "error");
+        }
+    }
+
+    async function createFolder() {
+        try {
+            const r = await call("/browse/new", { path: cur.path, name: newInput.value });
+            await go(r.path);
+        } catch (e) {
+            toast("New folder", e.message, "error");
+        }
+    }
+
+    pathInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(pathInput.value); });
+    newInput.addEventListener("keydown", (e) => { if (e.key === "Enter") createFolder(); });
+    box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+    box.append(
+        h("h3", {}, "Choose a folder"),
+        h("div", { class: "mol-pathrow" }, upBtn, pathInput, newBtn),
+        drives,
+        newRow,
+        list,
+        h("div", { class: "mol-confirmbtns" }, h("button", { class: "mol-btn", onclick: close }, "Cancel"), selectBtn));
+    document.body.append(box);
+    box.showModal();
+    go(startPath || "");
+}
+
 // Small per-browser preferences (sort order). Storage can be unavailable: ignore errors.
 function loadPref(key, fallback) {
     try { return localStorage.getItem("my_own_library." + key) || fallback; } catch { return fallback; }
@@ -295,11 +379,14 @@ const CSS = `
 /* Left column: same measures as Templates (LeftSidePanel, NavItem, NavTitle) */
 .mol-nav{width:224px;flex:none;background:var(--mol-panel);
   display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden;box-sizing:border-box}
-.mol-navscroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:0 0 8px;scrollbar-width:none;min-height:0}
+/* Spacing follows ComfyUI's Browse Templates (Tailwind units, in rem): panel sides 0.75rem, items 0.75rem 1rem
+   with 0.25rem between them, 0.5rem inside a group (CHARACTERS / CATEGORIES), corners 0.375rem. */
+.mol-navscroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:0 .75rem 8px;scrollbar-width:none;min-height:0}
 .mol-navscroll::-webkit-scrollbar{display:none}
 .mol-brand{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;height:72px;flex:none;padding-left:20px;margin-bottom:-4px}
-.mol-navitem{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 8px 4px;border-radius:8px;cursor:pointer;
+.mol-navitem{display:flex;align-items:center;gap:8px;padding:.75rem 1rem;margin:0 0 .25rem;border-radius:.375rem;cursor:pointer;
   color:var(--mol-fg);user-select:none;font-size:14px;line-height:20px}
+.mol-section ~ .mol-navitem{margin-bottom:.5rem}
 .mol-navitem>i{font-size:14px}
 .mol-navitem:hover{background:var(--mol-hover)}
 .mol-navitem.active{background:#3c3d42}
@@ -310,7 +397,7 @@ const CSS = `
 .mol-tools i{opacity:.7;padding:2px}
 .mol-tools i:hover{opacity:1}
 .mol-section{display:flex;align-items:center;justify-content:space-between;color:var(--mol-dim);font-size:12px;
-  font-weight:700;padding:20px 20px 8px;text-transform:uppercase;min-height:16px}
+  font-weight:700;padding:1.25rem .75rem .5rem;text-transform:uppercase;min-height:16px}
 .mol-sectionchev{cursor:pointer;margin-left:auto;opacity:.6;transition:opacity .15s,transform .15s;flex:none}
 .mol-sectionchev:hover{opacity:1}
 .mol-sectionchev.closed{transform:rotate(-90deg)}
@@ -482,6 +569,23 @@ const CSS = `
 .mol-confirmlist .row{display:flex;gap:10px;color:#cfcfcf}
 .mol-confirmlist .row span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-confirmlist .row span:last-child{color:#9a9a9a;white-space:nowrap}
+.mol-picker{--mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
+  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f0cf98;--mol-danger:#e57373;--mol-input:#1a1a1a;max-width:560px;z-index:10001}
+.mol-picker .mol-pathrow{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.mol-picker input{flex:1;min-width:0;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
+.mol-picker .mol-pathrow .mol-btn,.mol-picker .mol-drives .mol-btn{padding:6px 12px;white-space:nowrap}
+.mol-picker .mol-drives{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.mol-picker .mol-drives:empty{display:none}
+.mol-picker .mol-folders{height:40vh;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px}
+.mol-picker .mol-folder{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;cursor:pointer;user-select:none;word-break:break-all}
+.mol-picker .mol-folder:hover{background:var(--mol-hover)}
+.mol-picker .mol-folderempty{color:var(--mol-dim);padding:10px}
+.mol-dirrow{display:flex;gap:6px;align-items:center}
+.mol-dirinput{width:26rem;max-width:100%;box-sizing:border-box;background:var(--comfy-input-bg,#222);color:var(--input-text,#ddd);
+  border:1px solid var(--border-color,#4e4e4e);border-radius:6px;padding:6px 8px;font:inherit}
+.mol-dirbtn{flex:none;background:transparent;color:var(--input-text,#ddd);border:1px solid var(--border-color,#4e4e4e);
+  border-radius:6px;padding:6px 8px;cursor:pointer}
+.mol-dirbtn:hover{background:rgba(255,255,255,.08)}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
 .mol-simscore{color:#f0cf98}
@@ -2285,11 +2389,12 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
     if (!S.dialog?.open) toast("Adding to library", `${files.length} file(s), copying`, "info");
     const label = removeAfter ? "Moving to library" : "Adding to library";
     const job = await runJob(label, files, 1, (chunk, info) =>
-        call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates, job: info }));
+        call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates,
+            allow_no_workflow: !!getSetting(SET.removeNoWorkflow), job: info }));
     if (!job) return;
-    const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], freed: 0 };
+    const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], kept: [], freed: 0 };
     for (const r of job.results) {
-        for (const k of ["added", "existing", "duplicates", "errors", "removed"]) res[k] = res[k].concat(r[k] || []);
+        for (const k of ["added", "existing", "duplicates", "errors", "removed", "kept"]) res[k] = res[k].concat(r[k] || []);
         res.freed += r.freed || 0;
     }
     try {
@@ -2301,6 +2406,12 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
         const kept = dups.filter((d) => !gone.has(d.rel));
         S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, list: kept } : null;
         if (res.errors.length) toast("Some files were not added", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+        if (res.kept.length) {
+            // Added to the library, but deliberately left in the output folder.
+            const lines = res.kept.slice(0, 5).map((k) => `${k.rel}: ${k.reason}`);
+            if (res.kept.length > 5) lines.push(`and ${res.kept.length - 5} more`);
+            toast("Kept in output", lines.join("\n"), "warn");
+        }
         toast(job.cancelled ? `${label} stopped` : "Added to library", `${res.added.length} added${res.existing.length ? `, ${res.existing.length} already there` : ""}`
             + (dups.length ? `, ${dups.length} skipped as identical to a creation already in the library` : "")
             + (res.removed?.length ? `, ${res.removed.length} removed from output (${fmtSize(res.freed)})` : "")
@@ -2741,8 +2852,11 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
     info.append(h("div", { class: "mol-infofoot" },
         h("button", { class: "mol-btn primary", disabled: !(it.has_workflow || it.has_prompt), onclick: () => loadWorkflow(it) },
             icon("sitemap"), "Load workflow"),
+        h("button", { class: "mol-btn", disabled: !(it.has_workflow || it.has_prompt), onclick: () => saveWorkflowFile(it),
+            title: "Save the workflow as a .json file" }, icon("save")),
         it.summary?.positive?.length ? h("button", { class: "mol-btn", onclick: () => copyText(it.summary.positive.join("\n\n")) }, icon("copy"), "Copy prompt") : null,
-        h("a", { class: "mol-btn", href: itemFile(it, { download: 1 }), title: "Download" }, icon("download")),
+        // The download attribute keeps the page where it is (no "leave this page?" warning from ComfyUI).
+        h("a", { class: "mol-btn", href: itemFile(it, { download: 1 }), download: "", title: "Download the file" }, icon("download")),
         saved,
         // Second row: smaller, like the filter buttons of the main view.
         h("div", { class: "mol-footsmall" }, ...versionButtons.filter(Boolean), removeBtn)));
@@ -2814,6 +2928,26 @@ async function loadWorkflow(it) {
         toast("Workflow loaded", it.title);
     } catch (e) {
         toast("Could not load the workflow", e.message, "error");
+    }
+}
+
+// Save the workflow kept in the library (not the media file) as a .json file.
+// Creations that only have a prompt (API format) are saved as .prompt.json.
+async function saveWorkflowFile(it) {
+    try {
+        const meta = await call(`/meta?${new URLSearchParams({ id: it.id })}`);
+        const data = meta.workflow || meta.prompt;
+        if (!data) { toast("No workflow in this file", "", "warn"); return; }
+        const name = (it.title || "creation").replace(/[\\/:*?"<>|]/g, "_").trim() || "creation";
+        const fileName = name + (meta.workflow ? ".workflow.json" : ".prompt.json");
+        const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+        const a = h("a", { href, download: fileName, style: { display: "none" } });
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+    } catch (e) {
+        toast("Could not save the workflow", e.message, "error");
     }
 }
 

@@ -2,6 +2,15 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.13.0 (2026-11-02)
+
+- **Remove from output after adding** is more careful. A file stays in `output`, with a message saying why, when it was modified in the last few seconds, when it is a video that was never closed by its writer (no `moov` index: a batch job that is still running or was cancelled leaves one), or when the library copy is incomplete. The file is still added to the library.
+- **Also remove files without a workflow** (File Management, off by default): a file whose workflow could not be read (segments, images saved without it) stays in `output` after being added, unless you turn this on.
+- **Save workflow** button next to **Load workflow** in the detail panel: saves the creation's workflow as a `.json` file (`.prompt.json` when only the API-format prompt exists).
+- The download button no longer makes ComfyUI warn that the page is about to close.
+- **Library directory** setting: wider field, and a folder icon before it that opens a folder picker (drives, subfolders, **Up**, **New folder**, **Select this folder**), available only from the computer running ComfyUI.
+- The left column follows the spacing of ComfyUI's Browse Templates (same units, in rem): taller items, 0.25 rem between them, 0.5 rem inside CHARACTERS and CATEGORIES.
+
 ## 0.12.1 (2026-11-02)
 
 - Fixed: the CHARACTERS and CATEGORIES titles in the left column touched the first item below them; they now have a little space underneath.
