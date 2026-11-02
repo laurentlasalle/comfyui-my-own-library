@@ -148,6 +148,8 @@ async function syncLibraryDirSetting() {
         // ComfyUI shows the setting's name as declared).
         const def = SETTINGS.find((x) => x.id === SET.libraryDir);
         if (def && info.size != null) def.name = `Library directory · ${fmtSize(info.size)}`;
+        // The same size, in brackets after the folder at the bottom of the left column.
+        if (info.size != null && S.libraryDirSize !== info.size) { S.libraryDirSize = info.size; if (S.dialog?.open) render(); }
         if (getSetting(SET.libraryDir) !== serverDir) { dirSync = true; await setSetting(SET.libraryDir, serverDir); dirSync = false; }
     } catch { dirSync = false; }
 }
@@ -202,6 +204,7 @@ async function useLibraryDir(path) {
         if (S.dialog?.open) { await loadOutput(true); render(); }
         refreshBadge();
         toast("Library folder changed", path);
+        syncLibraryDirSetting();
     } catch (e) {
         toast("Could not use that folder", e.message, "error");
         await revertLibraryDir();
@@ -226,18 +229,11 @@ async function moveLibraryDir(path) {
         await loadSuggestions();
         if (S.dialog?.open) render();
         toast("Library moved", path);
+        syncLibraryDirSetting();
     } catch (e) {
         toast("Library not moved", e.message, "error");
         await revertLibraryDir();
     }
-}
-
-function openLibrarySettings() {
-    try {
-        const cmd = app.extensionManager?.command;
-        if (cmd?.execute) { cmd.execute("Comfy.ShowSettingsDialog"); return; }
-    } catch { /* below */ }
-    toast("Library directory", "Open ComfyUI's Settings (gear icon), section My Own Library, File Management.", "info");
 }
 
 // How the Library directory setting is drawn in ComfyUI's Settings: a folder icon
@@ -674,6 +670,7 @@ const S = {
     charsOpen: loadPref("charsOpen", "1") === "1",
     catsOpen: loadPref("catsOpen", "1") === "1",
     libraryDir: "",
+    libraryDirSize: null,   // size of the whole library in bytes, shown after the folder
     output: { files: [], total: 0, notAdded: 0, loading: false },
     selected: new Set(),    // output files selected, as "root|rel" keys
     selInfo: new Map(),     // key -> {root, rel, name, size, in_library}, including files not displayed
@@ -1253,10 +1250,12 @@ function renderNav() {
             S.duplicates?.length || S.view === "duplicates" ? navItem("duplicates", "Duplicates", "copy", S.duplicates?.length || 0) : null,
             navItem("output", "Import", "download", S.output.notAdded ? `${S.output.notAdded} new` : undefined),
             ...sections),
-        h("div", { class: "mol-navfoot", title: "Change it in ComfyUI/user/my_own_library.config.json" },
+        h("div", { class: "mol-navfoot" },
             S.version ? h("div", { class: "mol-version" }, `My Own Library ${S.version}`) : null,
-            h("span", { class: "mol-dirlink", title: "Change it in ComfyUI's Settings › My Own Library › File Management",
-                onclick: openLibrarySettings }, "Library folder: ", S.libraryDir)));
+            // Opens the folder picker; the chosen folder then goes through the setting's usual check and confirmation.
+            h("span", { class: "mol-dirlink", title: "Click to choose another folder",
+                onclick: () => folderPicker(S.libraryDir, (p) => setSetting(SET.libraryDir, p)) },
+            "Library folder: ", S.libraryDir, S.libraryDirSize != null ? ` (${fmtSize(S.libraryDirSize)})` : "")));
 }
 
 function viewTitle() {
@@ -3022,6 +3021,7 @@ async function open(view) {
         toast("Could not open the library", e.message, "error");
     }
     render();
+    syncLibraryDirSetting();  // refreshes the library size shown at the bottom of the left column
 }
 
 function close() {

@@ -116,7 +116,7 @@ thumbs/<id>.jpg         thumbnails
 cache/                  thumbnails of output files, safe to delete
 ```
 
-To keep the library somewhere else (another drive, for example), change **Library directory** in ComfyUI's Settings (**My Own Library** › **File Management**), or click the folder shown at the bottom of the library's left column. Type the path, or click the folder icon in front of the field to pick it: the picker lists drives and subfolders, with **Up**, **New folder** and **Select this folder** (it only works from the computer running ComfyUI, not from another one on your network). The new folder is checked, then you choose:
+To keep the library somewhere else (another drive, for example), change **Library directory** in ComfyUI's Settings (**My Own Library** › **File Management**), or click the folder shown at the bottom of the library's left column (its size, in brackets, follows it). That click opens the folder picker. In the Settings, type the path, or click the folder icon in front of the field to pick it: the picker lists drives and subfolders, with **Up**, **New folder** and **Select this folder** (it only works from the computer running ComfyUI, not from another one on your network). The new folder is checked, then you choose:
 
 - **Move my library there**: everything is copied (with a progress bar, and each file in the terminal), the copy is checked, and only then the old folder is deleted.
 - **Use that folder**: opens the library already in that folder (or starts an empty one); yours stays where it is.

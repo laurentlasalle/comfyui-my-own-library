@@ -9,6 +9,7 @@ Versions follow the usual pattern: the middle number goes up with new features, 
 - **Save workflow** button next to **Load workflow** in the detail panel: saves the creation's workflow as a `.json` file (`.prompt.json` when only the API-format prompt exists).
 - The download button no longer makes ComfyUI warn that the page is about to close.
 - **Library directory** setting: wider field, and a folder icon before it that opens a folder picker (drives, subfolders, **Up**, **New folder**, **Select this folder**), available only from the computer running ComfyUI.
+- The folder at the bottom of the left column shows the size of the library in brackets, and a click on it opens the folder picker (it used to open ComfyUI's Settings, hidden behind the library window).
 - The left column follows the spacing of ComfyUI's Browse Templates (same units, in rem): taller items, 0.25 rem between them, 0.5 rem inside CHARACTERS and CATEGORIES.
 
 ## 0.12.1 (2026-11-02)
