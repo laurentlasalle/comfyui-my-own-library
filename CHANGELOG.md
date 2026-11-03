@@ -2,6 +2,16 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.14.0 (2026-11-02)
+
+- **Adding to the library** leaves out files that may still be written: a video or sound modified in the last few seconds, or a video never closed by its writer (no `moov` index, as left by a batch job that is still running or was cancelled). A **Not added** message says why. With **Remove from output after adding** ticked and **Also remove files without a workflow** off, a file without a workflow is not added either, instead of being added and kept in `output`.
+- **Duplicates**: the copies that will leave the library are no longer dimmed; they show **Will be removed** where the kept one shows **Kept**. Hover a copy and click **Keep this one** to choose the copy kept (a warning appears if it takes a version out of its work). **Keep one** and **Keep one of each** follow these choices.
+- Fixed: merging duplicates now also merges their characters, like their tags.
+- **Combined from N parts** (Import view, Easy-Media projects) is shown only when it can be confirmed from the files in `output`: every segment of the project has a take made before the final video, and the most recent of those takes add up to its length.
+- Thumbnail badges all use 12 px text, like Browse Templates; **Part 2 of 4** and **Combined from N parts** are no longer bold and sit in the bottom-right corner, above **In library** or **New** in the Import view.
+- **Load workflow** uses ComfyUI's own workflow icon.
+- The `output/` folder name in the Import banner is shown as code, like in ComfyUI's documentation.
+
 ## 0.13.0 (2026-11-02)
 
 - **Remove from output after adding** is more careful. A file stays in `output`, with a message saying why, when it was modified in the last few seconds, when it is a video that was never closed by its writer (no `moov` index: a batch job that is still running or was cancelled leaves one), or when the library copy is incomplete. The file is still added to the library.

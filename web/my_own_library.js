@@ -126,7 +126,7 @@ const SETTINGS = [
     { id: SET.removeAfter, category: ["My Own Library", "File Management", "Remove after adding"], name: "Remove from output after adding (default)", sortOrder: 10,
         tooltip: "Whether the \"Remove from output after adding\" box is ticked when the library opens.", type: "boolean", defaultValue: false },
     { id: SET.removeNoWorkflow, category: ["My Own Library", "File Management", "Remove without workflow"], name: "Also remove files without a workflow", sortOrder: 5,
-        tooltip: "When off, a file whose workflow could not be read stays in the output folder after being added, even if \"Remove from output after adding\" is ticked. Turn on if you don't need the workflow of such files (segments, images saved without it).",
+        tooltip: "When off and \"Remove from output after adding\" is ticked, a file whose workflow could not be read is not added and stays in the output folder. Turn on to add and remove such files anyway, if you don't need their workflow (segments, images saved without it).",
         type: "boolean", defaultValue: false },
     { id: SET.charOrder, category: ["My Own Library", "Options", "Section order"], name: "Sidebar section order", sortOrder: 45,
         tooltip: "Whether CHARACTERS or CATEGORIES appears first in the left column.",
@@ -449,13 +449,13 @@ const CSS = `
 .mol-card:hover .mol-thumb img{transform:scale(1.03)}
 .mol-badge,.mol-star,.mol-check,.mol-inlib,.mol-family,.mol-families{z-index:2}
 .mol-badge{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:8px;
-  background:rgba(40,40,40,.82);color:#fff;font-size:13px;backdrop-filter:blur(4px)}
+  background:rgba(40,40,40,.82);color:#fff;font-size:12px;backdrop-filter:blur(4px)}
 .mol-star{position:absolute;top:10px;right:10px;padding:6px 8px;border-radius:8px;background:rgba(40,40,40,.82);color:#ffd54f}
 .mol-check{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:8px;background:rgba(40,40,40,.82);
   border:2px solid #bbb;display:flex;align-items:center;justify-content:center;color:#111}
 .mol-check.on{background:var(--mol-accent);border-color:var(--mol-accent)}
 .mol-inlib{position:absolute;bottom:10px;right:10px;padding:4px 9px;border-radius:8px;background:rgba(240,207,152,.92);color:#1b1b1b;font-size:12px;font-weight:600}
-.mol-families{position:absolute;bottom:10px;left:10px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:62%}
+.mol-families{position:absolute;bottom:10px;left:10px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:62%;font-size:12px}
 .mol-families .mol-family{position:static;max-width:100%}
 .mol-family{position:absolute;bottom:10px;left:10px;padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.82);color:#fff;font-size:12px;font-weight:600;backdrop-filter:blur(4px);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-topright{position:absolute;top:10px;right:10px;display:flex;gap:6px;align-items:center;z-index:2}
@@ -502,7 +502,13 @@ const CSS = `
 .mol-sugtext{flex:1 1 240px;min-width:200px}
 .mol-dupgroup{margin:0 0 26px}
 .mol-dupgroup>.mol-row{margin-bottom:10px}
-.mol-dupcopy .mol-thumb{opacity:.6}
+/* ComfyUI's workflow icon, in the colour of the text. */
+.mol-i-workflow{display:inline-block;width:1em;height:1em;flex:none;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='none' stroke='black' stroke-linecap='round' stroke-width='1.3' d='M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='none' stroke='black' stroke-linecap='round' stroke-width='1.3' d='M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z'/%3E%3C/svg%3E") center/contain no-repeat}
+.mol-dupkeepbtn{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);z-index:3;opacity:0;transition:opacity .15s;
+  padding:6px 12px;font-size:12px;white-space:nowrap}
+.mol-card:hover .mol-dupkeepbtn{opacity:1}
+.mol-ver.mol-removed{background:rgba(40,40,40,.88);color:#ececec;font-weight:600}
 .mol-jobbar{gap:12px}
 .mol-jobtext{white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 .mol-jobname{flex:1;min-width:0;display:flex;color:var(--mol-dim);white-space:nowrap}
@@ -544,7 +550,9 @@ const CSS = `
 .mol-striptag{position:absolute;right:3px;top:3px;font-size:10px;font-weight:700;color:#0f1f1d;background:#4fb3a9;border-radius:4px;padding:0 4px}
 .mol-parttag{margin-left:10px;font-size:12px;font-weight:600;color:#4fb3a9}
 .mol-parttag.final{color:var(--mol-accent)}
-.mol-partbadge{position:absolute;right:10px;top:46px;padding:3px 8px;border-radius:6px;background:rgba(20,20,20,.8);color:#ececec;font-size:11px;font-weight:600}
+.mol-partbadge{padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.8);color:#ececec;font-size:12px;font-weight:normal;white-space:nowrap}
+.mol-brstack{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;z-index:2}
+.mol-brstack>*{position:static}
 .mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
 .mol-partbadge:not(.final){background:rgba(79,179,169,.92);color:#0f1f1d}
 .mol-filename{user-select:text;word-break:break-all}
@@ -626,6 +634,8 @@ const CSS = `
 .mol-suggest-item .mol-count{color:var(--mol-dim);font-size:12px}
 .mol-hint{color:var(--mol-dim);font-size:13px;margin-top:6px}
 .mol-import-banner .mol-sugtext{font-size:13px;padding:2px 0}
+.mol-code{font-family:"Paper Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  font-size:.9em;padding:0 .4em;border-radius:.375rem;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14)}
 .mol-chartag{gap:4px}
 .mol-tagsbox input{flex:1;min-width:120px;background:none;border:0;outline:0;color:var(--mol-fg);font:inherit;padding:3px}
 .mol-prompt{background:var(--mol-input);border:1px solid var(--mol-border);border-radius:9px;padding:10px 12px;white-space:pre-wrap;
@@ -1735,8 +1745,21 @@ function renderReview() {
 const byId = (id) => S.items.find((x) => x.id === id);
 
 function keptOf(group) {
-    // Same rule as the server: a version of a work if any, else the first added.
+    // The copy chosen with Keep this one, else the server's rule: a version of
+    // a work if any, else the first added.
+    const chosen = group.find((it) => S.dupKeep?.has(it.id));
+    if (chosen) return chosen;
     return group.find((it) => it.work_id) || [...group].sort((a, b) => (a.added || "").localeCompare(b.added || ""))[0];
+}
+
+function chooseDupKeep(group, it) {
+    const other = group.find((x) => x !== it && x.work_id);
+    if (!it.work_id && other && !confirm("This copy is not a version of a work, but another copy is.\n"
+        + "Keeping this one takes that version out of its work. Keep this one anyway?")) return;
+    S.dupKeep = S.dupKeep || new Set();
+    for (const x of group) S.dupKeep.delete(x.id);
+    S.dupKeep.add(it.id);
+    render();
 }
 
 async function mergeDuplicates(body) {
@@ -1764,11 +1787,12 @@ function renderDuplicates() {
         h("div", { class: "mol-sugtext" },
             h("b", {}, `${groups.length} group${groups.length > 1 ? "s" : ""} of identical creations`),
             h("div", { class: "mol-hint" }, "Same file, or same image, video or sound with different metadata. "
-                + "Keep one merges tags, notes and favorite into the creation kept and takes the oldest date; "
-                + "the other copies leave the library (files in output are not touched).")),
+                + "Keep one merges tags, characters, notes and favorite into the creation kept and takes the oldest date; "
+                + "the other copies leave the library (files in output are not touched). "
+                + "To choose the copy kept, hover it and click Keep this one.")),
         h("button", { class: "mol-btn primary", onclick: () => {
             if (confirm(`Merge all ${groups.length} groups?\n${extra} library cop${extra > 1 ? "ies" : "y"} will be removed. Files in the output folder are not touched.`))
-                mergeDuplicates({ all: true });
+                mergeDuplicates({ all: true, keep: groups.map(keptOf).map((x) => x.id) });
         } }, icon("check"), `Keep one of each (${groups.length})`)));
     for (const group of groups) {
         const kept = keptOf(group);
@@ -1779,9 +1803,13 @@ function renderDuplicates() {
             const thumb = h("div", { class: "mol-thumb" },
                 thumbEl(itemThumb(it), it.kind, itemFile(it), it),
                 kindBadge(it.kind, "mol-badge lib"),
-                it === kept ? h("span", { class: "mol-topright" }, h("span", { class: "mol-ver" }, "Kept")) : null);
+                h("span", { class: "mol-topright" }, it === kept
+                    ? h("span", { class: "mol-ver" }, "Kept")
+                    : h("span", { class: "mol-ver mol-removed" }, "Will be removed")),
+                it === kept ? null : h("button", { class: "mol-btn mol-dupkeepbtn",
+                    onclick: (e) => { e.stopPropagation(); chooseDupKeep(group, it); } }, icon("check"), "Keep this one"));
             attachHoverPlay(thumb, it.kind, itemFile(it));
-            grid.append(h("div", { class: "mol-card" + (it === kept ? "" : " mol-dupcopy"), onclick: () => openItemById(it.id, works) },
+            grid.append(h("div", { class: "mol-card", onclick: () => openItemById(it.id, works) },
                 thumb,
                 h("div", { class: "mol-cardtitle", title: it.title }, it.title),
                 h("div", { class: "mol-hint", style: { marginTop: "-4px" } },
@@ -1791,7 +1819,7 @@ function renderDuplicates() {
             h("div", { class: "mol-row" },
                 h("b", {}, `${group.length} identical copies`),
                 h("span", { class: "mol-spacer" }),
-                h("button", { class: "mol-btn", onclick: () => mergeDuplicates({ ids: group.map((x) => x.id) }) }, icon("check"), "Keep one")),
+                h("button", { class: "mol-btn", onclick: () => mergeDuplicates({ ids: group.map((x) => x.id), keep: kept.id }) }, icon("check"), "Keep one")),
             grid));
     }
     return wrap;
@@ -1823,9 +1851,10 @@ function renderItemGrid() {
         const thumb = h("div", { class: "mol-thumb" + (n > 1 ? " stack" : "") },
             thumbEl(itemThumb(it), it.kind, itemFile(it), it),
             kindBadge(it.kind, "mol-badge lib"),
-            it.part ? h("span", { class: "mol-partbadge", title: it.part.project ? `Segment of the Easy-Media project ${it.part.project}` : "Segment of a combined video" },
-                `Part ${it.part.index} of ${it.part.count}`) : null,
-            it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${it.parts} parts`) : null,
+            it.part || it.parts ? h("span", { class: "mol-brstack" },
+                it.part ? h("span", { class: "mol-partbadge", title: it.part.project ? `Segment of the Easy-Media project ${it.part.project}` : "Segment of a combined video" },
+                    `Part ${it.part.index} of ${it.part.count}`) : null,
+                it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${it.parts} parts`) : null) : null,
             check,
             h("span", { class: "mol-topright" },
                 it.favorite ? h("span", { class: "mol-star" }, icon("star-fill")) : null,
@@ -1945,7 +1974,7 @@ function renderOutputGrid() {
     const wrap = h("div", { class: "mol-grid-wrap" });
     wrap.append(h("div", { class: "mol-suggestion mol-import-banner" },
         h("div", { class: "mol-sugtext" },
-            "Files in your ", h("code", {}, "output/"), " directory. Pick one or more to bring into your library, where you can organize, rate, and annotate them.")));
+            "Files in your ", h("code", { class: "mol-code" }, "output/"), " directory. Pick one or more to bring into your library, where you can organize, rate, and annotate them.")));
     const skipped = renderSkippedDuplicates();
     if (skipped) wrap.append(skipped);
     const files = S.output.files;
@@ -1971,11 +2000,12 @@ function renderOutputGrid() {
             kindBadge(f.kind),
             check,
             familyStack(f.families),
-            f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
-                f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
-            f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${f.parts} parts`) : null,
-            f.in_library ? h("span", { class: "mol-inlib" }, "In library")
-                : (S.lastVisit && f.mtime > S.lastVisit ? h("span", { class: "mol-inlib mol-new" }, "New") : null));
+            h("span", { class: "mol-brstack" },
+                f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
+                    f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
+                f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from these parts, found in output" }, `Combined from ${f.parts} parts`) : null,
+                f.in_library ? h("span", { class: "mol-inlib" }, "In library")
+                    : (S.lastVisit && f.mtime > S.lastVisit ? h("span", { class: "mol-inlib mol-new" }, "New") : null)));
         attachHoverPlay(thumb, f.kind, fileSource(f));
         grid.append(h("div", { class: "mol-card", onclick: () => openDetail("file", files, index) },
             thumb,
@@ -2391,9 +2421,9 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
         call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates,
             allow_no_workflow: !!getSetting(SET.removeNoWorkflow), job: info }));
     if (!job) return;
-    const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], kept: [], freed: 0 };
+    const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], kept: [], not_added: [], freed: 0 };
     for (const r of job.results) {
-        for (const k of ["added", "existing", "duplicates", "errors", "removed", "kept"]) res[k] = res[k].concat(r[k] || []);
+        for (const k of ["added", "existing", "duplicates", "errors", "removed", "kept", "not_added"]) res[k] = res[k].concat(r[k] || []);
         res.freed += r.freed || 0;
     }
     try {
@@ -2405,6 +2435,12 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
         const kept = dups.filter((d) => !gone.has(d.rel));
         S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, list: kept } : null;
         if (res.errors.length) toast("Some files were not added", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+        if (res.not_added.length) {
+            // Left out on purpose: still being written, or no workflow while it would be removed.
+            const lines = res.not_added.slice(0, 5).map((k) => `${k.rel}: ${k.reason}`);
+            if (res.not_added.length > 5) lines.push(`and ${res.not_added.length - 5} more`);
+            toast("Not added", lines.join("\n"), "warn");
+        }
         if (res.kept.length) {
             // Added to the library, but deliberately left in the output folder.
             const lines = res.kept.slice(0, 5).map((k) => `${k.rel}: ${k.reason}`);
@@ -2850,7 +2886,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
 
     info.append(h("div", { class: "mol-infofoot" },
         h("button", { class: "mol-btn primary", disabled: !(it.has_workflow || it.has_prompt), onclick: () => loadWorkflow(it) },
-            icon("sitemap"), "Load workflow"),
+            h("i", { class: "mol-i-workflow" }), "Load workflow"),
         h("button", { class: "mol-btn", disabled: !(it.has_workflow || it.has_prompt), onclick: () => saveWorkflowFile(it),
             title: "Save the workflow as a .json file" }, icon("save")),
         it.summary?.positive?.length ? h("button", { class: "mol-btn", onclick: () => copyText(it.summary.positive.join("\n\n")) }, icon("copy"), "Copy prompt") : null,

@@ -940,6 +940,33 @@ class Library:
             return list(self.data["characters"])
 
     # ------------------------------------------------------------ output cleanup
+    def not_addable(self, root, rel, need_workflow=False):
+        """Why a file should not be added yet, or None. A video or sound
+        modified a few seconds ago, or a video never closed by its writer, may
+        still be written (a batch job running, or one cancelled). With
+        need_workflow (the file is to be removed from output after adding), a
+        file without a workflow is not added either. Files already in the
+        library are left to the usual path."""
+        full = self.root_path(root, rel)
+        if not os.path.isfile(full):
+            return None
+        st = os.stat(full)
+        if self.source_index().get("%s|%s|%s" % (root, rel, st.st_size)):
+            return None
+        kind = md.kind_of(full)
+        age = time.time() - st.st_mtime
+        if kind in ("video", "audio") and age < STABLE_SECONDS:
+            return "it was modified %d s ago and may still be written" % max(0, age)
+        why = md.mp4_unfinished(full)
+        if why:
+            return "the video is not finalized yet (%s). A batch job may still be running, or it was cancelled" % why
+        if need_workflow:
+            prompt, workflow = md.extract(full)
+            if prompt is None and workflow is None:
+                return ("no workflow found. Untick Remove from output after adding, "
+                        "or turn on Also remove files without a workflow in Settings")
+        return None
+
     def delete_from_output(self, root, rel, protect=False, allow_no_workflow=False):
         """Permanently delete an output file that is safely in the library.
         Returns the number of bytes freed. Refuses anything else.
@@ -1018,10 +1045,11 @@ class Library:
                     out.append([m["id"] for m in members])
             return out
 
-    def merge_duplicates(self, ids):
+    def merge_duplicates(self, ids, keep_id=None):
         """Keep one creation of a group of identical ones; the others leave the
-        library (their output files stay linked to the one kept). Returns the
-        id kept."""
+        library (their output files stay linked to the one kept). keep_id
+        chooses the one kept; by default, a version of a work if there is one,
+        else the first added. Returns the id kept."""
         with self.lock:
             group = [self.data["items"][i] for i in ids if i in self.data["items"]]
             if len(group) < 2:
@@ -1030,9 +1058,11 @@ class Library:
 
             def custom_title(m):
                 return bool(m.get("title")) and m["title"] not in stems
-            # Keep a version of a work if there is one, else the first added.
-            keep = (next((m for m in group if m.get("work_id")), None)
-                    or min(group, key=lambda m: m.get("added", "")))
+            keep = next((m for m in group if keep_id and m["id"] == keep_id), None)
+            if keep is None:
+                # A version of a work if there is one, else the first added.
+                keep = (next((m for m in group if m.get("work_id")), None)
+                        or min(group, key=lambda m: m.get("added", "")))
             others = [m for m in group if m is not keep]
             fields = {}
             tags = list(keep.get("tags", []))
@@ -1040,6 +1070,11 @@ class Library:
                 tags += [t for t in m.get("tags", []) if t.lower() not in (x.lower() for x in tags)]
             if tags != keep.get("tags", []):
                 fields["tags"] = tags
+            chars = list(keep.get("characters", []))
+            for m in others:
+                chars += [c for c in m.get("characters", []) if c.lower() not in (x.lower() for x in chars)]
+            if chars != keep.get("characters", []):
+                fields["characters"] = chars
             notes = []
             for m in [keep] + others:
                 n = (m.get("notes") or "").strip()

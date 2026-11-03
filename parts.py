@@ -191,9 +191,43 @@ def annotate(base, files):
             if f:
                 f["part"] = {"index": p["index"], "count": p["count"], "project": g["project"]}
         for r in g["finals"]:
-            if r in by_rel:
-                by_rel[r]["parts"] = len({p["index"] for p in g["parts"]}) or len(g["parts"])
+            if r not in by_rel:
+                continue
+            if g["kind"] == "easy-media":
+                n = _easy_media_combined(base, by_rel, g, by_rel[r])
+                if n:
+                    by_rel[r]["parts"] = n
+            else:
+                by_rel[r]["parts"] = len(g["parts"])
     return found
+
+
+def _easy_media_combined(base, by_rel, group, final):
+    """Number of segments a final video of an Easy-Media project was made
+    from, or None when that can't be confirmed from the files in output: every
+    segment of the project needs a take made before the final, and the most
+    recent of those takes must add up to the final's duration."""
+    count = max((p["count"] for p in group["parts"]), default=0)
+    if not count:
+        return None
+    takes = {}
+    for p in group["parts"]:
+        f = by_rel.get(p["rel"])
+        if f and p["index"] and f["mtime"] <= final["mtime"]:
+            takes.setdefault(p["index"], []).append(f)
+    if set(takes) != set(range(1, count + 1)):
+        return None
+    fd = _duration(os.path.join(base, final["rel"]), final["size"], final["mtime"])
+    if not fd:
+        return None
+    total = 0.0
+    for idx in takes:
+        f = max(takes[idx], key=lambda x: x["mtime"])
+        d = _duration(os.path.join(base, f["rel"]), f["size"], f["mtime"])
+        if not d:
+            return None
+        total += d
+    return count if abs(total - fd) <= 0.25 + 0.05 * count else None
 
 
 # ------------------------------------------------------------- in the library

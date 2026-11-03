@@ -66,7 +66,7 @@ class Job:
         self.state["counts"][what] = self.state["counts"].get(what, 0) + 1
         label = {"added": "Added", "skipped": "Skipped (identical to a library creation)",
                  "already": "Already in library", "removed": "Removed from output",
-                 "deleted": "Deleted from output", "removed_lib": "Removed from library", "copied": "Copied",
+                 "deleted": "Deleted from output", "removed_lib": "Removed from library", "copied": "Copied", "notadded": "Not added",
                  "error": "Error"}[what]
         total = self.total or "?"
         _say("%s %s/%s: %s%s" % (label, self.n, total, name, (" (%s)" % extra) if extra else ""))
@@ -87,7 +87,7 @@ class Job:
         c = self.state["counts"]
         parts = []
         for key, label in (("copied", "copied"), ("added", "added"), ("skipped", "skipped as duplicates"), ("already", "already in library"),
-                           ("removed", "removed from output"), ("kept", "kept in output"), ("deleted", "deleted from output"),
+                           ("notadded", "not added"), ("removed", "removed from output"), ("kept", "kept in output"), ("deleted", "deleted from output"),
                            ("removed_lib", "removed from library"), ("error", "errors")):
             if c.get(key):
                 parts.append("%d %s" % (c[key], label))
@@ -408,12 +408,22 @@ def setup_routes():
         body = await request.json()
         lib = library()
         added, existing, duplicates, errors = [], [], [], []
-        removed, kept, freed = [], [], 0
+        removed, kept, not_added, freed = [], [], [], 0
         job = Job(body, "Moving to library" if body.get("remove_after") else "Adding to library")
         import time
         for entry in body.get("files", []):
             name = entry.get("rel", "")
             t0 = time.time()
+            root = entry.get("root", "output")
+            try:
+                why = await run(lib.not_addable, root, entry["rel"],
+                                bool(body.get("remove_after")) and root == "output" and not body.get("allow_no_workflow"))
+            except Exception:
+                why = None
+            if why:
+                not_added.append({"rel": entry["rel"], "reason": why})
+                job.step(name, "notadded", why)
+                continue
             try:
                 item, created = await run(lib.add, entry.get("root", "output"), entry["rel"],
                                           body.get("category", ""), body.get("tags", []),
@@ -448,17 +458,20 @@ def setup_routes():
                     _say("  not removed from output: %s (%s)" % (name, e))
         job.finish(bool(body.get("cancelled")))
         return web.json_response({"added": added, "existing": existing, "duplicates": duplicates, "errors": errors,
-                                  "removed": removed, "kept": kept, "freed": freed})
+                                  "removed": removed, "kept": kept, "not_added": not_added, "freed": freed})
 
     @routes.post(PREFIX + "/duplicates/merge")
     async def post_duplicates_merge(request):
         body = await request.json()
         lib = library()
         groups = (await run(lib.duplicates)) if body.get("all") else [body.get("ids", [])]
+        # The copies chosen to be kept: one id, or a list (one per group).
+        wanted = body.get("keep")
+        wanted = set(wanted if isinstance(wanted, list) else [wanted] if wanted else [])
         kept, errors = [], []
         for ids in groups:
             try:
-                kept.append(await run(lib.merge_duplicates, ids))
+                kept.append(await run(lib.merge_duplicates, ids, next((i for i in ids if i in wanted), None)))
             except Exception as e:
                 errors.append(str(e))
         return web.json_response({"kept": kept, "errors": errors, **(await run(lib.snapshot))})
