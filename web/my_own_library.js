@@ -1854,7 +1854,7 @@ function renderItemGrid() {
             it.part || it.parts ? h("span", { class: "mol-brstack" },
                 it.part ? h("span", { class: "mol-partbadge", title: it.part.project ? `Segment of the Easy-Media project ${it.part.project}` : "Segment of a combined video" },
                     `Part ${it.part.index} of ${it.part.count}`) : null,
-                it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combined from ${it.parts} parts`) : null) : null,
+                it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combo of ${it.parts}`) : null) : null,
             check,
             h("span", { class: "mol-topright" },
                 it.favorite ? h("span", { class: "mol-star" }, icon("star-fill")) : null,
@@ -2003,7 +2003,7 @@ function renderOutputGrid() {
             h("span", { class: "mol-brstack" },
                 f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
                     f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
-                f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from these parts, found in output" }, `Combined from ${f.parts} parts`) : null,
+                f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from these parts, found in output" }, `Combo of ${f.parts}`) : null,
                 f.in_library ? h("span", { class: "mol-inlib" }, "In library")
                     : (S.lastVisit && f.mtime > S.lastVisit ? h("span", { class: "mol-inlib mol-new" }, "New") : null)));
         attachHoverPlay(thumb, f.kind, fileSource(f));
@@ -2689,7 +2689,7 @@ function renderDetail() {
         members.length > 1 ? h("span", { style: { color: "var(--mol-accent)", marginLeft: "10px" } }, `v${ver + 1} of ${members.length}`) : null,
         entry?.part ? h("span", { class: "mol-parttag", title: "Only a segment used to make a combined video" },
             `Part ${entry.part.index} of ${entry.part.count}` + (finalOf(entry) ? ` · segment of ${finalOf(entry)}` : "")) : null,
-        entry?.parts ? h("span", { class: "mol-parttag final" }, `Combined from ${entry.parts} parts`) : null);
+        entry?.parts ? h("span", { class: "mol-parttag final", title: "Video combined from several parts" }, `Combo of ${entry.parts}`) : null);
     info.append(h("div", { class: "mol-infohead" },
         h("button", { class: "mol-iconbtn", title: "Back to grid (Esc)", onclick: closeDetail }, icon("arrow-left")),
         headTitle,

@@ -2,6 +2,10 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.14.1 (2026-11-02)
+
+- The badge of combined videos is shorter: **Combo of 3** instead of **Combined from 3 parts** (the tooltip still explains it).
+
 ## 0.14.0 (2026-11-02)
 
 - **Adding to the library** leaves out files that may still be written: a video or sound modified in the last few seconds, or a video never closed by its writer (no `moov` index, as left by a batch job that is still running or was cancelled). A **Not added** message says why. With **Remove from output after adding** ticked and **Also remove files without a workflow** off, a file without a workflow is not added either, instead of being added and kept in `output`.
