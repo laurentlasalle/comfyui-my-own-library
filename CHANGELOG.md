@@ -2,6 +2,13 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.15.0 (2026-11-03)
+
+- **Selection bar** (several creations ticked): a new **Characters to add** field next to **Tags to add**, and an **Apply changes** button in place of **Add tags**. Nothing changes until you click it: the category chosen in **Move to category** (no longer applied as soon as it is picked) replaces the current one, and the characters and tags are added. Choices are cleared when the selection is.
+- **Characters** in the detail panel suggest your characters as you type (they suggested tags by mistake).
+- The detail panel shows the size in megapixels next to the dimensions, for example `1600 × 896 (1.4 MP)`, with 1 MP = 1024 × 1024 pixels as in ComfyUI.
+- The track of the progress bar is visible again across its whole width (it had the same colour as the bar around it).
+
 ## 0.14.1 (2026-11-02)
 
 - The badge of combined videos is shorter: **Combo of 3** instead of **Combined from 3 parts** (the tooltip still explains it).

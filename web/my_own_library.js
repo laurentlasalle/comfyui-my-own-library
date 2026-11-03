@@ -514,7 +514,7 @@ const CSS = `
 .mol-jobname{flex:1;min-width:0;display:flex;color:var(--mol-dim);white-space:nowrap}
 .mol-jobhead{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .mol-jobtail{flex:none}
-.mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-card);overflow:hidden}
+.mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-hover);overflow:hidden}
 .mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
 .mol-chipcount{margin-left:6px;padding:0 7px;border-radius:9px;background:var(--mol-accent);color:#1b1b1b;font-size:12px;font-weight:700;line-height:18px}
 .mol-dd{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 10px;min-width:0;
@@ -804,6 +804,20 @@ const onNewOutput = debounce(async () => {
         refreshBadge();
     }
 }, 1200);
+
+// Megapixels as ComfyUI counts them (1 MP = 1024 × 1024 pixels), one decimal.
+const megapixels = (w, h) => (Math.round(w * h / 1048576 * 10) / 10).toFixed(1);
+
+// Characters known to the library, most used first (those on no item last).
+const allCharacters = () => {
+    const map = new Map();
+    for (const c of S.characters || []) map.set(c.toLowerCase(), { name: c, count: 0 });
+    for (const it of S.items) for (const c of it.characters || []) {
+        const k = c.toLowerCase();
+        map.set(k, { name: map.get(k)?.name || c, count: (map.get(k)?.count || 0) + 1 });
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+};
 
 const allTags = () => {
     const map = new Map();
@@ -1878,28 +1892,69 @@ function renderItemGrid() {
 
 function renderLibraryBar() {
     if (S.job) return renderJobProgress();
-    if (!S.libSelected.size) return null;
+    if (!S.libSelected.size) {
+        // Choices made for a selection don't carry over to the next one.
+        S.bulkCat = null; S.bulkNewCats = []; S.bulkChars = []; S.bulkTags = [];
+        return null;
+    }
     const works = groupWorks(S.items).filter((w) => S.libSelected.has(w.key));
     const ids = works.flatMap((w) => w.members.map((m) => m.id));
     const shown = filteredWorks();
     const allShown = shown.length && shown.every((w) => S.libSelected.has(w.key));
 
-    const moveSel = h("select", { class: "mol-select", title: "Move the selection to a category",
-        onchange: async (e) => {
+    // Nothing changes until Apply changes: the category chosen replaces the
+    // current one, characters and tags are only added.
+    const newCats = (S.bulkNewCats || []).filter((c) => !S.categories.includes(c));
+    const moveSel = h("select", { class: "mol-select", title: "Category given to the selection when you click Apply changes",
+        onchange: (e) => {
             let value = e.target.value;
             if (value === "__new__") {
                 value = (prompt("New category name") || "").trim();
-                if (!value) { e.target.value = "__label__"; return; }
+                if (!value) { e.target.value = S.bulkCat ?? "__label__"; return; }
+                const known = S.categories.find((c) => c.toLowerCase() === value.toLowerCase());
+                if (known) value = known;
+                else S.bulkNewCats = [...(S.bulkNewCats || []), value];
+                S.bulkCat = value;
+                render();
+                return;
             }
-            await bulkUpdate(ids, { category: value === "__none__" ? "" : value },
-                value === "__none__" ? "Moved to Uncategorized" : `Moved to ${value}`);
+            S.bulkCat = value;
+            sync();
         } },
-    h("option", { value: "__label__", selected: true, disabled: true }, "Move to category"),
-    h("option", { value: "__none__" }, "No category"),
-    ...S.categories.map((c) => h("option", { value: c }, c)),
+    h("option", { value: "__label__", selected: S.bulkCat == null, disabled: true }, "Move to category"),
+    h("option", { value: "__none__", selected: S.bulkCat === "__none__" }, "No category"),
+    ...[...S.categories, ...newCats].map((c) => h("option", { value: c, selected: S.bulkCat === c }, c)),
     h("option", { value: "__new__" }, "+ New category"));
 
-    const tags = tagEditor(S.bulkTags || [], (v) => { S.bulkTags = v; }, { dropUp: true, placeholder: "Tags to add" });
+    const chars = tagEditor(S.bulkChars || [], (v) => { S.bulkChars = v; sync(); },
+        { dropUp: true, placeholder: "Characters to add", source: allCharacters });
+    const tags = tagEditor(S.bulkTags || [], (v) => { S.bulkTags = v; sync(); }, { dropUp: true, placeholder: "Tags to add" });
+    const plan = () => ({
+        cat: S.bulkCat ?? null,
+        chars: [...chars.get(), ...(chars.pending() ? [chars.pending()] : [])],
+        tags: [...tags.get(), ...(tags.pending() ? [tags.pending()] : [])],
+    });
+    const applyBtn = h("button", { class: "mol-btn", title: "Apply the category, characters and tags chosen to the selection",
+        onclick: async () => {
+            const p = plan();
+            if (p.cat == null && !p.chars.length && !p.tags.length) return;
+            const body = {};
+            const done = [];
+            if (p.cat != null) {
+                body.category = p.cat === "__none__" ? "" : p.cat;
+                done.push(p.cat === "__none__" ? "Category: none" : `Category: ${p.cat}`);
+            }
+            if (p.chars.length) { body.add_characters = p.chars; done.push(`Characters added: ${p.chars.join(", ")}`); }
+            if (p.tags.length) { body.add_tags = p.tags; done.push(`Tags added: ${p.tags.join(", ")}`); }
+            S.bulkCat = null; S.bulkNewCats = []; S.bulkChars = []; S.bulkTags = [];
+            await bulkUpdate(ids, body, done.join(" · "));
+        } }, icon("check"), "Apply changes");
+    function sync() {
+        const p = plan();
+        applyBtn.disabled = p.cat == null && !p.chars.length && !p.tags.length;
+    }
+    for (const ed of [chars, tags]) ed.input.addEventListener("input", sync);
+    sync();
 
     return h("div", { class: "mol-actionbar" },
         h("span", {}, `${works.length} selected`),
@@ -1911,14 +1966,9 @@ function renderLibraryBar() {
             } }, icon("check-square"), allShown ? "Unselect all shown" : "Select all shown"),
         h("span", { class: "mol-spacer" }),
         moveSel,
+        h("div", { style: { width: "200px" } }, chars.el),
         h("div", { style: { width: "200px" } }, tags.el),
-        h("button", { class: "mol-btn", onclick: async () => {
-            const add = tags.get();
-            if (!add.length) { toast("Type at least one tag first", "", "info"); return; }
-            await bulkUpdate(ids, { add_tags: add }, `Tags added: ${add.join(", ")}`);
-            S.bulkTags = [];
-            render();
-        } }, icon("tag"), "Add tags"),
+        applyBtn,
         h("button", { class: "mol-btn danger", onclick: () => removeWorks(works) }, icon("trash"), `Remove ${works.length} from library`),
         h("button", { class: "mol-btn primary", disabled: ids.length < 2, onclick: () => groupIds(ids),
             title: "Versions are numbered in order of creation" }, icon("clone"), "Group as versions"));
@@ -2025,7 +2075,7 @@ function renderOutputGrid() {
 
 // Tag editor with suggestions from the tags already used in the library.
 // Up/Down to choose, Enter or Tab to take a suggestion, Esc to close the list.
-function tagEditor(initial, onChange, { dropUp = false, placeholder = "Add a tag" } = {}) {
+function tagEditor(initial, onChange, { dropUp = false, placeholder = "Add a tag", source = allTags } = {}) {
     let tags = [...(initial || [])];
     let options = [];
     let active = -1;
@@ -2034,7 +2084,7 @@ function tagEditor(initial, onChange, { dropUp = false, placeholder = "Add a tag
     const menu = h("div", { class: "mol-suggest" });
     menu.hidden = true;
 
-    const known = () => allTags();
+    const known = () => source();
     const closeMenu = () => { options = []; active = -1; menu.hidden = true; };
     const draw = () => box.replaceChildren(
         ...tags.map((t) => h("span", { class: "mol-tag" }, t, h("i", {
@@ -2097,7 +2147,8 @@ function tagEditor(initial, onChange, { dropUp = false, placeholder = "Add a tag
         }
     });
     draw();
-    return { el: box, get: () => tags };
+    // pending: text typed but not yet turned into a tag (no Enter).
+    return { el: box, get: () => tags, pending: () => String(input.value || "").replace(/,+$/, "").trim(), input };
 }
 
 function categorySelect(value, onChange) {
@@ -2834,7 +2885,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         save({ characters: v });
         // Keep S.characters list in sync for new names
         for (const c of v) if (!S.characters.includes(c)) S.characters.push(c);
-    }, { placeholder: "Add a character, then Enter" });
+    }, { placeholder: "Add a character, then Enter", source: allCharacters });
 
     body.append(
         h("div", { class: "mol-field" }, h("label", {}, "Title"), h("div", { style: { display: "flex", gap: "6px" } }, title, star),
@@ -2853,7 +2904,7 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
         kv([
             ["Created", fmtDate(it.created)],
             ["Added", fmtDate(it.added)],
-            ["Size", fmtSize(it.size) + (it.width ? ` · ${it.width} × ${it.height}` : "")],
+            ["Size", fmtSize(it.size) + (it.width ? ` · ${it.width} × ${it.height} (${megapixels(it.width, it.height)} MP)` : "")],
             ["Original file", it.source ? `${it.source.root}/${it.source.rel}` : ""],
         ]));
 

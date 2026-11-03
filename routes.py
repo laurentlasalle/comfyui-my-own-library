@@ -831,7 +831,7 @@ def setup_routes():
         body = await request.json()
         lib = library()
         try:
-            await run(lib.update_many, body.get("ids", []), body.get("category"), body.get("add_tags"))
+            await run(lib.update_many, body.get("ids", []), body.get("category"), body.get("add_tags"), body.get("add_characters"))
         except Exception as e:
             return error(e)
         return web.json_response(await run(lib.snapshot))

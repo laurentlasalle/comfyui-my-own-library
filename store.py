@@ -858,9 +858,18 @@ class Library:
                     pass
         return freed
 
-    def update_many(self, ids, category=None, add_tags=None):
-        """Bulk edit: move to a category and/or add tags (shared with versions)."""
+    def update_many(self, ids, category=None, add_tags=None, add_characters=None):
+        """Bulk edit: move to a category, add tags and characters (shared with
+        versions). Tags and characters already there, whatever their case, are
+        not added twice."""
         with self.lock:
+            # Reuse the library's spelling of a tag or character, whatever the case typed.
+            spelling = {"characters": {c.lower(): c for c in reversed(self.data.get("characters", []))}, "tags": {}}
+            for it in self.data["items"].values():
+                for t in it.get("tags", []):
+                    spelling["tags"].setdefault(t.lower(), t)
+            add_tags = [spelling["tags"].get(x.lower(), x) for x in add_tags or [] if x]
+            add_characters = [spelling["characters"].get(x.lower(), x) for x in add_characters or [] if x]
             for item_id in ids:
                 item = self.data["items"].get(item_id)
                 if not item:
@@ -868,8 +877,11 @@ class Library:
                 fields = {}
                 if category is not None:
                     fields["category"] = category
-                if add_tags:
-                    fields["tags"] = list(item.get("tags", [])) + list(add_tags)
+                for key, add in (("tags", add_tags), ("characters", add_characters)):
+                    if add:
+                        have = list(item.get(key, []))
+                        have += [x for x in add if x and x.lower() not in (y.lower() for y in have)]
+                        fields[key] = have
                 if fields:
                     self.update(item_id, fields)
 
