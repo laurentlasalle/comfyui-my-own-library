@@ -37,7 +37,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 
 | Action | How |
 |---|---|
-| Add creations | **Import** in the left column, tick the cards, pick a category in the bottom bar, then **Add to library**. Or open a file and use **Add to library** with a category and tags. |
+| Add creations | **Import** in the left column, tick the cards, then **Add N** in the bottom bar (**Move N** when **Remove from output after adding** is ticked). Classify them afterwards in the library. Or open a single file and use **Add to library**, with a category, characters and tags if you like. |
 | Add from a node | Right-click a **Save Image**, **Preview Image** or **Video Combine** node that has outputs, then **Add to My Own Library**. |
 | Create, rename or delete a category | The **+** next to *Categories*; hover a category for the pencil and trash icons. Deleting a category never deletes creations, they become *Uncategorized*. |
 | Edit a creation | Click its card. Title, category, model, tags and notes save automatically. |
@@ -63,7 +63,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Segments of combined videos | Videos made of several segments (Easy-Media projects, or segments followed by a video whose length is their sum) are recognized in the Import view: each segment shows **Part 2 of 4**, and the final video **Combo of N** when the segments in `output` confirm it (for Easy-Media, every segment has a take made before the final video, and the most recent of those takes add up to its length). **Hide parts** (on by default) hides the segments. Once the final video is in your library, **Delete parts** lists the files that can go (segments and, for Easy-Media, their context latents), grouped by final video with their size, and deletes them after confirmation. The project's `project.json` and `out/` folder are always kept. |
 | Segments already in the library | Segments added to the library are recognized too (by the folder they came from for Easy-Media, by their lengths otherwise) and show the same **Part 2 of 4** / **Combo of N**. **Hide parts** hides them; **Remove parts** (shown when their final video is in the library too) lists them with their size and removes their library copies. Files in the output folder are not touched. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
-| Work on several creations | Tick cards (checkbox on hover) or use **Select all shown** for the whole current view, then choose a category in **Move to category**, characters in **Characters to add** and tags in **Tags to add**, and click **Apply changes** (the category replaces the current one, characters and tags are added), or use **Remove N from library** (a card with versions is removed with all its versions, after confirmation) or **Group as versions**. |
+| Work on several creations | Tick cards (checkbox on hover) or use **Select all** for the whole current view. Then choose a category in **Move to category**, characters in **Characters to add** and tags in **Tags to add**, and click **Apply** (the category replaces the current one, characters and tags are added). **Delete** removes the selection from the library after confirmation (a card with versions goes with all its versions), and **Group** groups it as versions of one work. |
 
 ## How similarity is measured
 

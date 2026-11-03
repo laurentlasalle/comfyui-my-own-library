@@ -510,6 +510,12 @@ const CSS = `
 .mol-card:hover .mol-dupkeepbtn{opacity:1}
 .mol-ver.mol-removed{background:rgba(40,40,40,.88);color:#ececec;font-weight:600}
 .mol-jobbar{gap:12px}
+.mol-selbar{justify-content:space-between;row-gap:10px}
+.mol-selblock{display:flex;align-items:center;gap:10px;flex:none}
+.mol-seledit{flex:1 1 min-content;justify-content:center}
+.mol-selfield{flex:1 1 110px;min-width:110px;max-width:200px}
+.mol-selfield .mol-tagsbox{min-width:0}
+.mol-selfield .mol-tagsbox input{width:0;min-width:60px}
 .mol-jobtext{white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
 .mol-jobname{flex:1;min-width:0;display:flex;color:var(--mol-dim);white-space:nowrap}
 .mol-jobhead{overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -1934,7 +1940,7 @@ function renderLibraryBar() {
         chars: [...chars.get(), ...(chars.pending() ? [chars.pending()] : [])],
         tags: [...tags.get(), ...(tags.pending() ? [tags.pending()] : [])],
     });
-    const applyBtn = h("button", { class: "mol-btn", title: "Apply the category, characters and tags chosen to the selection",
+    const applyBtn = h("button", { class: "mol-btn", title: "Apply the category (replaced), characters and tags (added) chosen to the selection",
         onclick: async () => {
             const p = plan();
             if (p.cat == null && !p.chars.length && !p.tags.length) return;
@@ -1948,7 +1954,7 @@ function renderLibraryBar() {
             if (p.tags.length) { body.add_tags = p.tags; done.push(`Tags added: ${p.tags.join(", ")}`); }
             S.bulkCat = null; S.bulkNewCats = []; S.bulkChars = []; S.bulkTags = [];
             await bulkUpdate(ids, body, done.join(" · "));
-        } }, icon("check"), "Apply changes");
+        } }, icon("check"), "Apply");
     function sync() {
         const p = plan();
         applyBtn.disabled = p.cat == null && !p.chars.length && !p.tags.length;
@@ -1956,22 +1962,27 @@ function renderLibraryBar() {
     for (const ed of [chars, tags]) ed.input.addEventListener("input", sync);
     sync();
 
-    return h("div", { class: "mol-actionbar" },
-        h("span", {}, `${works.length} selected`),
-        h("button", { class: "mol-btn", onclick: () => { S.libSelected.clear(); render(); } }, "Clear selection"),
-        h("button", { class: "mol-btn", title: "Select every card in the current view",
-            onclick: () => {
-                for (const w of shown) allShown ? S.libSelected.delete(w.key) : S.libSelected.add(w.key);
-                render();
-            } }, icon("check-square"), allShown ? "Unselect all shown" : "Select all shown"),
-        h("span", { class: "mol-spacer" }),
-        moveSel,
-        h("div", { style: { width: "200px" } }, chars.el),
-        h("div", { style: { width: "200px" } }, tags.el),
-        applyBtn,
-        h("button", { class: "mol-btn danger", onclick: () => removeWorks(works) }, icon("trash"), `Remove ${works.length} from library`),
-        h("button", { class: "mol-btn primary", disabled: ids.length < 2, onclick: () => groupIds(ids),
-            title: "Versions are numbered in order of creation" }, icon("clone"), "Group as versions"));
+    // Three blocks (selection, edits, actions) that wrap as a whole when the
+    // window is too narrow; the edits are centred between the other two.
+    return h("div", { class: "mol-actionbar mol-selbar" },
+        h("span", { class: "mol-selblock" },
+            h("span", {}, `${works.length} selected`),
+            h("button", { class: "mol-btn", title: "Clear the selection", onclick: () => { S.libSelected.clear(); render(); } }, "Clear"),
+            h("button", { class: "mol-btn", title: allShown ? "Unselect every card in the current view" : "Select every card in the current view",
+                onclick: () => {
+                    for (const w of shown) allShown ? S.libSelected.delete(w.key) : S.libSelected.add(w.key);
+                    render();
+                } }, icon("check-square"), allShown ? "Unselect all" : "Select all")),
+        h("span", { class: "mol-selblock mol-seledit" },
+            moveSel,
+            h("div", { class: "mol-selfield" }, chars.el),
+            h("div", { class: "mol-selfield" }, tags.el),
+            applyBtn),
+        h("span", { class: "mol-selblock" },
+            h("button", { class: "mol-btn danger", title: `Remove the ${works.length} selected creation${works.length > 1 ? "s" : ""} from the library (after confirmation)`,
+                onclick: () => removeWorks(works) }, icon("trash"), "Delete"),
+            h("button", { class: "mol-btn primary", disabled: ids.length < 2, onclick: () => groupIds(ids),
+                title: "Group the selection as versions of one work, numbered in order of creation" }, icon("clone"), "Group")));
 }
 
 async function bulkUpdate(ids, body, done) {
@@ -2017,7 +2028,7 @@ function renderSkippedDuplicates() {
                 : ". It counts as added, so you can delete it from output."))),
         h("button", { class: "mol-btn", onclick: () => { S.skippedDups = null; render(); } }, "OK"),
         h("button", { class: "mol-btn", title: "Copy them to the library as separate creations",
-            onclick: () => { S.skippedDups = null; addFiles(sk.files, sk.category, sk.tags, false, true); } }, "Add anyway"));
+            onclick: () => { S.skippedDups = null; addFiles(sk.files, sk.category, sk.tags, false, true, sk.characters); } }, "Add anyway"));
 }
 
 function renderOutputGrid() {
@@ -2451,25 +2462,25 @@ function renderOutputBar() {
         S.partsPlan?.files ? h("button", { class: "mol-btn danger", title: "Segments of combined videos whose final video is in your library",
             onclick: deleteParts }, icon("trash"), `Delete parts (${fmtSize(S.partsPlan.total)})`) : null,
         h("span", { class: "mol-spacer" }),
-        categorySelect(S.addCategory, (v) => { S.addCategory = v; }),
-        h("div", { style: { width: "260px" } },
-            tagEditor(S.addTags, (v) => { S.addTags = v; }, { dropUp: true, placeholder: "Tags for the selection" }).el),
-        removeAfterBox(() => S.removeAfter, (v) => { S.removeAfter = v; }),
+        // Category, characters and tags are given afterwards, in the library.
+        removeAfterBox(() => S.removeAfter, (v) => { S.removeAfter = v; render(); }),
         h("button", {
             class: "mol-btn primary", disabled: !toAdd.length,
+            title: (S.removeAfter ? "Copy the selected files to the library, then delete them from the output folder"
+                : "Copy the selected files to the library") + " (files already in the library are left out)",
             onclick: async () => {
-                const res = await addFiles(toAdd.map((f) => ({ root: f.root, rel: f.rel })), S.addCategory, S.addTags, S.removeAfter);
-                if (res) { S.addTags = []; render(); }
+                const res = await addFiles(toAdd.map((f) => ({ root: f.root, rel: f.rel })), "", [], S.removeAfter);
+                if (res) render();
             },
-        }, icon("plus"), `Add ${toAdd.length || ""} to library`));
+        }, icon("plus"), `${S.removeAfter ? "Move" : "Add"}${toAdd.length ? " " + toAdd.length : ""}`));
 }
 
-async function addFiles(files, category = "", tags = [], removeAfter = false, allowDuplicates = false) {
+async function addFiles(files, category = "", tags = [], removeAfter = false, allowDuplicates = false, characters = []) {
     if (!files.length) return;
     if (!S.dialog?.open) toast("Adding to library", `${files.length} file(s), copying`, "info");
     const label = removeAfter ? "Moving to library" : "Adding to library";
     const job = await runJob(label, files, 1, (chunk, info) =>
-        call("/add", { files: chunk, category, tags, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates,
+        call("/add", { files: chunk, category, tags, characters, remove_after: !!removeAfter, allow_duplicates: !!allowDuplicates,
             allow_no_workflow: !!getSetting(SET.removeNoWorkflow), job: info }));
     if (!job) return;
     const res = { added: [], existing: [], duplicates: [], errors: [], removed: [], kept: [], not_added: [], freed: 0 };
@@ -2484,7 +2495,7 @@ async function addFiles(files, category = "", tags = [], removeAfter = false, al
         // instead of copied again; offer to add them anyway (unless just deleted).
         const gone = new Set(res.removed || []);
         const kept = dups.filter((d) => !gone.has(d.rel));
-        S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, list: kept } : null;
+        S.skippedDups = kept.length ? { files: kept.map((d) => ({ root: d.root, rel: d.rel })), category, tags, characters, list: kept } : null;
         if (res.errors.length) toast("Some files were not added", res.errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
         if (res.not_added.length) {
             // Left out on purpose: still being written, or no workflow while it would be removed.
@@ -2965,8 +2976,10 @@ function fillFileDetail(f, body, info) {
     let category = S.addCategory;
     let removeAfter = S.removeAfter;
     const tags = tagEditor([], () => {}, { placeholder: "Add a tag, then Enter" });
+    const chars = tagEditor([], () => {}, { placeholder: "Add a character, then Enter", source: allCharacters });
+    const typed = (ed) => [...ed.get(), ...(ed.pending() ? [ed.pending()] : [])];
     const addBtn = h("button", { class: "mol-btn primary", onclick: async () => {
-        const res = await addFiles([{ root: f.root, rel: f.rel }], category, tags.get(), removeAfter);
+        const res = await addFiles([{ root: f.root, rel: f.rel }], category, typed(tags), removeAfter, false, typed(chars));
         const item = res?.added?.[0] || res?.existing?.[0];
         if (item) {
             f.in_library = item.id;
@@ -2990,6 +3003,7 @@ function fillFileDetail(f, body, info) {
         } else {
             body.append(
                 h("div", { class: "mol-field" }, h("label", {}, "Category"), categorySelect(category, (v) => { category = v; })),
+                h("div", { class: "mol-field" }, h("label", {}, "Characters"), chars.el),
                 h("div", { class: "mol-field" }, h("label", {}, "Tags"), tags.el),
                 removeAfterBox(() => removeAfter, (v) => { removeAfter = v; }));
             foot.append(addBtn);

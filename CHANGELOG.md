@@ -2,6 +2,13 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.16.0 (2026-11-03)
+
+- **Selection bar of the library**, shorter names: **Clear**, **Select all**, **Apply**, **Delete** and **Group** (tooltips give the full meaning). **Move to category**, **Characters to add**, **Tags to add** and **Apply** are grouped in the middle, and the two fields narrow before the bar wraps. In a narrow window, the bar wraps by whole groups.
+- **Import view**: the bottom bar no longer sets a category or tags, which are given in the library afterwards. Its button is now **Add N**, or **Move N** when **Remove from output after adding** is ticked.
+- **Import view, detail panel** of a file: a **Characters** field joins **Category** and **Tags**, below the file's information, to classify a single file as it is added.
+- Characters typed with another case than an existing one reuse its spelling.
+
 ## 0.15.0 (2026-11-03)
 
 - **Selection bar** (several creations ticked): a new **Characters to add** field next to **Tags to add**, and an **Apply changes** button in place of **Add tags**. Nothing changes until you click it: the category chosen in **Move to category** (no longer applied as soon as it is picked) replaces the current one, and the characters and tags are added. Choices are cleared when the selection is.

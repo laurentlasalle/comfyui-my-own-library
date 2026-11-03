@@ -433,6 +433,8 @@ def setup_routes():
                                        "id": item["id"], "title": item.get("title")})
                     job.step(name, "skipped", 'same as "%s"' % item.get("title"))
                 else:
+                    if created is True and body.get("characters"):
+                        item = await run(lib.update, item["id"], {"characters": list(body["characters"])}) or item
                     (added if created else existing).append(item)
                     job.step(name, "added" if created else "already",
                              "%s, %.1f s" % (_fmt_size(item.get("size") or 0), time.time() - t0) if created else "")

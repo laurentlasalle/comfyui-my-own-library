@@ -811,6 +811,10 @@ class Library:
                     continue
                 if key in ("tags", "characters"):
                     value = self._clean_tags(value if isinstance(value, list) else [])
+                    if key == "characters":
+                        # The library's spelling of a known character, whatever the case typed.
+                        known = {c.lower(): c for c in reversed(self.data.get("characters", []))}
+                        value = [known.get(c.lower(), c) for c in value]
                 elif key == "favorite":
                     value = bool(value)
                 elif key == "family_override":
