@@ -2,6 +2,15 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.17.0 (2026-11-12)
+
+- **Delete in the Import view**: one red **Delete** button for the whole selection, in your library or not, and in a file's panel too. The confirmation says how many files are in your library (which keeps its copies) and how many are not. A video or sound modified in the last few seconds is not deleted.
+- **Recycle Bin or Trash**: every deletion of My Own Library, from `output` or from the library (Delete, Remove from output after adding, intermediates, duplicates), now sends the files to the Recycle Bin (Windows) or the Trash (macOS, Linux), where you can restore them. A file that can't go there (network or removable drive) is not deleted. The new **Delete immediately (skip the Recycle Bin or Trash)** setting deletes for good instead, once confirmed. Confirmations and summaries say which one applies.
+- **Files found in the library folder**: a file of the library folder that no creation uses (restored from the trash, or copied there by hand) is shown in the Import view with **In library folder**, and is added where it is, its workflow read again.
+- **Steps of a workflow run**: a workflow that saves several outputs in one run (for example a video, the video refined, frames, upscaled frames, a sheet) has one result, the last output of the chain; the other outputs show **Step 2 of 5**, in the Import view and in the library. Runs are recognized by their identical embedded prompt and ordered by the graph of the workflow.
+- **Intermediates**: segments and steps share **Hide intermediates**, **Delete intermediates** (in place of Delete parts) and **Remove intermediates** (in place of Remove parts).
+- **Accent color** setting, by default the orange of Pixaroma's nodes (`#f66744`) in place of the beige. Its darker shades are computed from it, and the text on it is black or white, whichever reads better.
+
 ## 0.16.0 (2026-11-03)
 
 - **Selection bar of the library**, shorter names: **Clear**, **Select all**, **Apply**, **Delete** and **Group** (tooltips give the full meaning). **Move to category**, **Characters to add**, **Tags to add** and **Apply** are grouped in the middle, and the two fields narrow before the bar wraps. In a narrow window, the bar wraps by whole groups.

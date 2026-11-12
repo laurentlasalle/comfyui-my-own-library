@@ -18,6 +18,7 @@ import folder_paths
 from server import PromptServer
 
 from .store import Library, Kept
+from .trash import discard, TrashError, trash_name
 
 log = logging.getLogger("my_own_library")
 PREFIX = "/my_own_library"
@@ -54,7 +55,8 @@ class Job:
         state = _jobs.get(self.id) if self.id else None
         if state is None:
             import time
-            state = {"t0": time.time(), "counts": {}, "freed": 0, "errors": 0, "verb": verb}
+            state = {"t0": time.time(), "counts": {}, "freed": 0, "errors": 0, "verb": verb,
+                     "trash": not body.get("delete_immediately")}
             if self.id:
                 _jobs[self.id] = state
         self.state = state
@@ -92,7 +94,11 @@ class Job:
             if c.get(key):
                 parts.append("%d %s" % (c[key], label))
         if self.state["freed"]:
-            parts.append("%s freed" % _fmt_size(self.state["freed"]))
+            if self.state.get("trash"):
+                from .trash import trash_name
+                parts.append("%s moved to the %s" % (_fmt_size(self.state["freed"]), trash_name()))
+            else:
+                parts.append("%s freed" % _fmt_size(self.state["freed"]))
         _say("%s %s in %.1f s: %s" % (self.state.get("verb", self.verb), "cancelled" if cancelled else "done",
                                       time.time() - self.state["t0"], ", ".join(parts) or "nothing to do"))
 
@@ -300,14 +306,18 @@ def setup_routes():
             lib = library()
             files = await run(lib.list_root, root)
             if root == "output":
-                from . import parts
+                from . import parts, steps
                 await run(parts.annotate, lib.roots["output"], files)
+                await run(steps.annotate, lib.roots["output"], files)
+                files += await run(lib.library_folder_orphans)
+                files.sort(key=lambda f: f["mtime"], reverse=True)
         except Exception as e:
             return error(e)
         hidden_parts = 0
         if request.query.get("hide_parts") in ("1", "true"):
-            hidden_parts = sum(1 for f in files if f.get("part"))
-            files = [f for f in files if not f.get("part")]
+            # Intermediates: segments of combined videos and steps of runs.
+            hidden_parts = sum(1 for f in files if f.get("part") or f.get("step"))
+            files = [f for f in files if not (f.get("part") or f.get("step"))]
         if kind in ("image", "video", "audio"):
             files = [f for f in files if f["kind"] == kind]
         if query:
@@ -445,13 +455,13 @@ def setup_routes():
             if body.get("remove_after") and entry.get("root", "output") == "output":
                 try:
                     n = await run(lib.delete_from_output, "output", entry["rel"], True,
-                                  bool(body.get("allow_no_workflow")))
+                                  bool(body.get("allow_no_workflow")), bool(body.get("delete_immediately")))
                     freed += n
                     job.freed(n)
                     job.step_quiet("removed")
                     _say("  removed from output: %s (%s)" % (name, _fmt_size(n)))
                     removed.append(entry["rel"])
-                except Kept as e:
+                except (Kept, TrashError) as e:
                     kept.append({"rel": entry["rel"], "reason": str(e)})
                     job.step_quiet("kept")
                     _say("  kept in output: %s (%s)" % (name, e))
@@ -473,7 +483,8 @@ def setup_routes():
         kept, errors = [], []
         for ids in groups:
             try:
-                kept.append(await run(lib.merge_duplicates, ids, next((i for i in ids if i in wanted), None)))
+                kept.append(await run(lib.merge_duplicates, ids, next((i for i in ids if i in wanted), None),
+                                      bool(body.get("delete_immediately"))))
             except Exception as e:
                 errors.append(str(e))
         return web.json_response({"kept": kept, "errors": errors, **(await run(lib.snapshot))})
@@ -663,6 +674,21 @@ def setup_routes():
             if entries:
                 plan.append({"final": finals_in[-1], "project": g["project"], "kind": g["kind"],
                              "parts": len(g["parts"]), "files": entries, "total": sum(e["size"] for e in entries)})
+        # Steps of runs whose result is in the library.
+        from . import steps
+        for r in steps.annotate(base, files):
+            results_in = [k for k in r["results"] if by_rel.get(k, {}).get("in_library")]
+            if not results_in:
+                continue
+            entries = []
+            for st in r["steps"]:
+                full = os.path.join(base, st["key"])
+                if os.path.isfile(full):
+                    entries.append({"rel": st["key"], "size": os.path.getsize(full), "index": st["index"]})
+            if entries:
+                plan.append({"final": results_in[-1], "project": None, "kind": "steps",
+                             "parts": r["steps"][0]["count"] - 1 if r["steps"] else 0,
+                             "files": entries, "total": sum(e["size"] for e in entries)})
         return plan
 
     @routes.get(PREFIX + "/output/parts")
@@ -689,8 +715,7 @@ def setup_routes():
                 continue
             try:
                 full = os.path.join(base, rel)
-                n = os.path.getsize(full)
-                os.remove(full)
+                n = await run(discard, full, bool(body.get("delete_immediately")))
                 freed += n
                 job.freed(n)
                 job.step(rel, "deleted", _fmt_size(n))
@@ -719,7 +744,20 @@ def setup_routes():
                                         "size": it.get("size") or 0, "index": p["index"]})
                 final = lib.get(g["finals"][-1]) or {}
                 if entries:
-                    groups.append({"final": final.get("title") or final.get("id"), "project": g["project"],
+                    groups.append({"final": final.get("title") or final.get("id"), "project": g["project"], "kind": "parts",
+                                   "parts": entries, "total": sum(e["size"] for e in entries)})
+            # Steps of runs whose result is in the library (it always is: they are found there).
+            taken = {e["id"] for g in groups for e in g["parts"]}
+            for r in lib.library_steps():
+                entries = []
+                for st in r["steps"]:
+                    it = lib.get(st["key"])
+                    if it and it["id"] not in taken:
+                        entries.append({"id": it["id"], "title": it.get("title"), "name": (it.get("source") or {}).get("name"),
+                                        "size": it.get("size") or 0, "index": st["index"]})
+                result = lib.get(r["results"][0]) or {}
+                if entries:
+                    groups.append({"final": result.get("title") or result.get("id"), "project": None, "kind": "steps",
                                    "parts": entries, "total": sum(e["size"] for e in entries)})
             return groups
 
@@ -743,7 +781,8 @@ def setup_routes():
         job = Job(body, "Deleting from output")
         for entry in body.get("files", []):
             try:
-                n = await run(lib.delete_from_output, entry.get("root", "output"), entry["rel"])
+                n = await run(lib.delete_from_output, entry.get("root", "output"), entry["rel"], False, False,
+                              bool(body.get("delete_immediately")), True)
                 freed += n
                 job.freed(n)
                 job.step(entry["rel"], "deleted", _fmt_size(n))
@@ -803,30 +842,35 @@ def setup_routes():
     async def post_remove(request):
         body = await request.json()
         try:
-            await run(library().remove, body.get("id", ""))
+            await run(library().remove, body.get("id", ""), bool(body.get("delete_immediately")))
         except KeyError:
             return error("Not found", 404)
+        except OSError as e:
+            return error(e)
         return web.json_response({"ok": True})
 
     @routes.post(PREFIX + "/items/remove")
     async def post_remove_many(request):
         body = await request.json()
         lib = library()
-        removed, freed = 0, 0
+        removed, freed, errors = 0, 0, []
         job = Job(body, "Removing from library")
         for item_id in body.get("ids", []):
             item = lib.get(item_id)
             name = (item or {}).get("title") or item_id
             try:
-                n = await run(lib.remove, item_id)
+                n = await run(lib.remove, item_id, bool(body.get("delete_immediately")))
                 freed += n
                 removed += 1
                 job.freed(n)
                 job.step(name, "removed_lib", _fmt_size(n))
             except KeyError:
                 pass
+            except OSError as e:
+                errors.append({"rel": name, "error": str(e)})
+                job.step(name, "error", str(e))
         job.finish(bool(body.get("cancelled")))
-        return web.json_response({"removed": removed, "freed": freed, **(await run(lib.snapshot))})
+        return web.json_response({"removed": removed, "freed": freed, "errors": errors, **(await run(lib.snapshot))})
 
     @routes.post(PREFIX + "/items/update")
     async def post_update_many(request):

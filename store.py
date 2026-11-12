@@ -24,6 +24,7 @@ import uuid
 from datetime import datetime
 
 from . import metadata as md
+from .trash import discard, TrashError, trash_name
 from . import similarity as sim
 from . import dupes
 from . import faces
@@ -503,6 +504,10 @@ class Library:
                     path = self.root_path(f["root"], f["rel"])
                     prompt, workflow = md.extract(path)
                     self._families[key] = md.detect_families(prompt, path, workflow)
+                    if f["root"] == "output":
+                        # Read anyway: saves the background reading of the steps of runs.
+                        from . import steps
+                        steps.remember((f["rel"], f["size"], f["mtime"]), prompt)
                 except Exception:
                     self._families[key] = None
                 changed = True
@@ -536,14 +541,30 @@ class Library:
                 for f in g["finals"]:
                     if f in by_id:
                         by_id[f]["parts"] = len(g["parts"])
+            for r in self.library_steps(raw):
+                for s in r["steps"]:
+                    if s["key"] in by_id and "part" not in by_id[s["key"]]:
+                        by_id[s["key"]]["step"] = {"index": s["index"], "count": s["count"], "result": r["results"][0]}
             return {
                 "library_dir": self.dir,
                 "version": __version__,
+                "trash_name": trash_name(),
                 "categories": list(self.data["categories"]),
                 "characters": list(self.data.get("characters", [])),
                 "items": items,
                 "duplicates": self.duplicates(),
             }
+
+    def library_steps(self, raw=None):
+        """Runs of workflows among the library's creations: their results and steps."""
+        try:
+            from . import steps
+            if raw is None:
+                with self.lock:
+                    raw = list(self.data["items"].values())
+            return steps.library_runs(self.dir, raw)
+        except Exception:
+            return []
 
     def library_parts(self, raw=None):
         """Groups of segments among the library's own creations."""
@@ -657,15 +678,61 @@ class Library:
             # Segments of combined videos don't count: only the final video does.
             from . import parts
             parts.annotate(self.roots["output"], files)
+            from . import steps
+            steps.annotate(self.roots["output"], files)
         except Exception:
             pass
-        return sum(1 for f in files if f["mtime"] > since and not f["in_library"] and not f.get("part"))
+        return sum(1 for f in files if f["mtime"] > since and not f["in_library"] and not f.get("part") and not f.get("step"))
 
     def root_path(self, root, rel):
+        if root == "library":
+            # Files found in the library folder that no creation uses (restored
+            # from the trash, or copied there by hand): only under files/.
+            if not rel.replace("\\", "/").startswith("files/"):
+                raise ValueError("Only the files folder of the library can be read")
+            return _safe_join(self.dir, rel)
         base = self.roots.get(root)
         if not base:
             raise ValueError("Unknown folder: %s" % root)
         return _safe_join(base, rel)
+
+    def library_folder_orphans(self):
+        """Files in the library's files/ folder that no creation uses, listed
+        like output files (root "library"), with "orphan": True."""
+        base = os.path.join(self.dir, "files")
+        if not os.path.isdir(base):
+            return []
+        with self.lock:
+            used = set()
+            for item in self.data["items"].values():
+                for rel in (item.get("file"), item.get("companion")):
+                    if rel:
+                        used.add(os.path.normcase(os.path.normpath(os.path.join(self.dir, rel))))
+        index = self.source_index()
+        out = []
+        for dirpath, dirnames, filenames in os.walk(base):
+            names = set(filenames)
+            for name in filenames:
+                kind = md.kind_of(name)
+                if not kind:
+                    continue
+                stem, ext = os.path.splitext(name)
+                if ext.lower() == ".png" and any((stem + v) in names for v in md.VIDEO_EXTS):
+                    continue  # companion of a video
+                full = os.path.join(dirpath, name)
+                if os.path.normcase(os.path.normpath(full)) in used:
+                    continue
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                rel = os.path.relpath(full, self.dir).replace("\\", "/")
+                if index.get("library|%s|%s" % (rel, st.st_size)):
+                    continue
+                out.append({"root": "library", "rel": rel, "name": name, "kind": kind, "size": st.st_size,
+                            "mtime": st.st_mtime, "created": _iso_from_ts(st.st_mtime), "in_library": None,
+                            "orphan": True})
+        return out
 
     def cache_thumbnail(self, root, rel):
         """Thumbnail of a file in output/temp, cached by path, size and date."""
@@ -726,22 +793,33 @@ class Library:
 
         item_id = uuid.uuid4().hex[:12]
         ext = os.path.splitext(full)[1].lower()
-        month = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m")
-        stem = readable_stem(os.path.basename(full), item_id)
-        rel_main = "files/%s/%s%s" % (month, stem, ext)
-        dest = _safe_join(self.dir, rel_main)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copy2(full, dest)
-
-        rel_comp = None
         comp = md.companion_png(full)
-        if comp:
-            rel_comp = "files/%s/%s.png" % (month, stem)
-            shutil.copy2(comp, _safe_join(self.dir, rel_comp))
+        rel_comp = None
+        if root == "library":
+            # Already in the library folder: used where it is, not copied.
+            rel_main = rel.replace("\\", "/")
+            dest = full
+            if comp:
+                rel_comp = os.path.relpath(comp, self.dir).replace("\\", "/")
+        else:
+            month = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m")
+            stem = readable_stem(os.path.basename(full), item_id)
+            rel_main = "files/%s/%s%s" % (month, stem, ext)
+            dest = _safe_join(self.dir, rel_main)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(full, dest)
+            if comp:
+                rel_comp = "files/%s/%s.png" % (month, stem)
+                shutil.copy2(comp, _safe_join(self.dir, rel_comp))
 
         prompt, workflow = md.extract(full)
         _atomic_write_json(os.path.join(self.dir, "meta", item_id + ".json"),
                            {"prompt": prompt, "workflow": workflow})
+        try:
+            from . import steps
+            steps.remember(("item", item_id), prompt)
+        except Exception:
+            pass
 
         thumb = os.path.join(self.dir, "thumbs", item_id + ".jpg")
         try:
@@ -842,24 +920,38 @@ class Library:
             self._save()
             return item
 
-    def remove(self, item_id):
+    def remove(self, item_id, immediately=False):
+        """Remove a creation from the library. Its file (and companion) go to
+        the system's trash, or are deleted for good with immediately; when
+        they can't go to the trash, TrashError is raised and nothing changes.
+        The thumbnail and the copy of the workflow in meta/ are deleted
+        directly: they are of no use without the creation. Returns the size
+        of the files discarded."""
         with self.lock:
-            item = self.data["items"].pop(item_id, None)
+            item = self.data["items"].get(item_id)
             if not item:
                 raise KeyError(item_id)
+            freed = 0
+            main = self.item_path(item, "main")
+            if main and os.path.isfile(main):
+                freed += discard(main, immediately)  # raises before anything changed if it can't
+            comp = self.item_path(item, "companion")
+            if comp and os.path.isfile(comp):
+                try:
+                    freed += discard(comp, immediately)
+                except OSError:
+                    pass
+            self.data["items"].pop(item_id, None)
             if item.get("work_id"):
                 self._dissolve_if_single(item["work_id"])
             self._save()
-        freed = 0
-        for path in (self.item_path(item, "main"), self.item_path(item, "companion"),
-                     os.path.join(self.dir, "meta", item_id + ".json"),
+        for path in (os.path.join(self.dir, "meta", item_id + ".json"),
                      os.path.join(self.dir, "thumbs", item_id + ".jpg")):
-            if path and os.path.isfile(path):
-                try:
-                    freed += os.path.getsize(path)
+            try:
+                if os.path.isfile(path):
                     os.remove(path)
-                except OSError:
-                    pass
+            except OSError:
+                pass
         return freed
 
     def update_many(self, ids, category=None, add_tags=None, add_characters=None):
@@ -983,14 +1075,33 @@ class Library:
                         "or turn on Also remove files without a workflow in Settings")
         return None
 
-    def delete_from_output(self, root, rel, protect=False, allow_no_workflow=False):
-        """Permanently delete an output file that is safely in the library.
-        Returns the number of bytes freed. Refuses anything else.
+    def delete_from_output(self, root, rel, protect=False, allow_no_workflow=False, immediately=False, any_file=False):
+        """Delete an output file that is safely in the library: to the
+        system's trash, or for good with immediately. Returns its size (and
+        its companion's). Refuses anything else, unless any_file (the Delete
+        button of the Import view), where a file not in the library is
+        discarded too, if it isn't still being written.
 
         With protect (the "remove after adding" path), the file is also kept,
         by raising Kept, when it may not be final: modified a few seconds ago,
         a video never closed by its writer, or no workflow could be read from
         it (unless allow_no_workflow)."""
+        if root == "library" and any_file:
+            # A file of the library folder that no creation uses.
+            full = self.root_path(root, rel)
+            if self.source_index().get("library|%s|%s" % (rel, os.path.getsize(full))):
+                raise ValueError("%s belongs to a creation of the library, nothing deleted" % rel)
+            with self.lock:
+                if any(rel in (i.get("file"), i.get("companion")) for i in self.data["items"].values()):
+                    raise ValueError("%s belongs to a creation of the library, nothing deleted" % rel)
+            comp = md.companion_png(full)
+            freed = discard(full, immediately)
+            if comp and os.path.isfile(comp):
+                try:
+                    freed += discard(comp, immediately)
+                except OSError:
+                    pass
+            return freed
         if root != "output":
             raise ValueError("Only files of the output folder can be deleted")
         full = self.root_path(root, rel)
@@ -1000,7 +1111,19 @@ class Library:
         item_id = self.source_index().get("%s|%s|%s" % (root, rel, size))
         item = self.get(item_id) if item_id else None
         if not item:
-            raise ValueError("Not in the library: %s" % rel)
+            if not any_file:
+                raise ValueError("Not in the library: %s" % rel)
+            age = time.time() - os.path.getmtime(full)
+            if age < STABLE_SECONDS and md.kind_of(full) in ("video", "audio"):
+                raise Kept("it was modified %d s ago and may still be written" % max(0, age))
+            comp = md.companion_png(full)
+            freed = discard(full, immediately)
+            if comp and os.path.isfile(comp):
+                try:
+                    freed += discard(comp, immediately)
+                except OSError:
+                    pass
+            return freed
         copy = self.item_path(item)
         src = item.get("source") or {}
         if (src.get("root"), src.get("rel")) == (root, rel):
@@ -1026,14 +1149,11 @@ class Library:
                 raise Kept("the library copy is incomplete (%s)" % why)
             if not (item.get("has_workflow") or item.get("has_prompt")) and not allow_no_workflow:
                 raise Kept("no workflow was found in it")
-        freed = 0
         comp = md.companion_png(full)
-        os.remove(full)
-        freed += size
-        if comp and (not item.get("companion") or os.path.isfile(self.item_path(item, "companion"))):
+        freed = discard(full, immediately)
+        if comp and os.path.isfile(comp) and (not item.get("companion") or os.path.isfile(self.item_path(item, "companion"))):
             try:
-                freed += os.path.getsize(comp)
-                os.remove(comp)
+                freed += discard(comp, immediately)
             except OSError:
                 pass
         return freed
@@ -1061,7 +1181,7 @@ class Library:
                     out.append([m["id"] for m in members])
             return out
 
-    def merge_duplicates(self, ids, keep_id=None):
+    def merge_duplicates(self, ids, keep_id=None, immediately=False):
         """Keep one creation of a group of identical ones; the others leave the
         library (their output files stay linked to the one kept). keep_id
         chooses the one kept; by default, a version of a work if there is one,
@@ -1123,7 +1243,7 @@ class Library:
                 self.update(keep["id"], fields)
             self._save()
         for m in others:
-            self.remove(m["id"])
+            self.remove(m["id"], immediately)
         return keep["id"]
 
     # ------------------------------------------------------------------ versions

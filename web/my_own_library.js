@@ -20,6 +20,8 @@ const url = (path, params = {}) => {
 };
 
 async function call(path, body) {
+    // Every request says whether deletions skip the trash (Delete immediately setting).
+    if (body && typeof body === "object" && !Array.isArray(body)) body = { ...body, delete_immediately: !!getSetting(SET.deleteNow) };
     const res = await api.fetchApi(BASE + path, body === undefined ? {} : {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -29,6 +31,14 @@ async function call(path, body) {
     if (!res.ok) throw new Error(data.error || res.statusText);
     return data;
 }
+
+// Where deleted files go, said in every confirmation and summary.
+const trashName = () => S.trashName || "Recycle Bin";
+const deletesNow = () => !!getSetting(SET.deleteNow);
+const whereGo = () => deletesNow()
+    ? "They are deleted immediately. This cannot be undone."
+    : `They go to the ${trashName()}, where you can restore them.`;
+const freedText = (n) => deletesNow() ? `${fmtSize(n)} freed` : `${fmtSize(n)} moved to the ${trashName()}`;
 
 function toast(summary, detail = "", severity = "success") {
     try {
@@ -83,8 +93,10 @@ const SET = {
     libraryDir: "MyOwnLibrary.Files.LibraryDirectory",
     charOrder: "MyOwnLibrary.Sidebar.SectionOrder",
     removeNoWorkflow: "MyOwnLibrary.Output.RemoveWithoutWorkflow",
+    deleteNow: "MyOwnLibrary.Files.DeleteImmediately",
+    accent: "MyOwnLibrary.Options.AccentColor",
 };
-const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first", [SET.removeNoWorkflow]: false };
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first", [SET.removeNoWorkflow]: false, [SET.deleteNow]: false, [SET.accent]: "f66744" };
 
 function getSetting(id) {
     try {
@@ -105,6 +117,22 @@ async function setSetting(id, value) {
 }
 
 const rerender = () => { if (S.dialog?.open) render(); };
+
+// Accent color: one value, set on the window (and the folder picker); the
+// darker shades are mixed from it in CSS. The text on accent backgrounds is
+// black or white, whichever reads better on it.
+function applyAccent(value) {
+    let hex = String(value ?? getSetting(SET.accent) ?? "f66744").trim().replace(/^#/, "");
+    if (!/^([0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex)) hex = "f66744";
+    hex = hex.slice(0, 6);
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const onAccent = (lum + 0.05) / 0.06 >= 1.05 / (lum + 0.05) ? "#1b1b1b" : "#ffffff";
+    let style = document.getElementById("mol-accent");
+    if (!style) { style = document.createElement("style"); style.id = "mol-accent"; document.head.append(style); }
+    style.textContent = `.mol-dialog,.mol-picker{--mol-accent:#${hex};--mol-on-accent:${onAccent}}`;
+}
 
 // Two sections, in this order (sortOrder: higher first).
 const SETTINGS = [
@@ -128,6 +156,12 @@ const SETTINGS = [
     { id: SET.removeNoWorkflow, category: ["My Own Library", "File Management", "Remove without workflow"], name: "Also remove files without a workflow", sortOrder: 5,
         tooltip: "When off and \"Remove from output after adding\" is ticked, a file whose workflow could not be read is not added and stays in the output folder. Turn on to add and remove such files anyway, if you don't need their workflow (segments, images saved without it).",
         type: "boolean", defaultValue: false },
+    { id: SET.deleteNow, category: ["My Own Library", "File Management", "Delete immediately"], name: "Delete immediately (skip the Recycle Bin or Trash)", sortOrder: 4,
+        tooltip: "When off, everything My Own Library deletes (from the output folder or from the library) goes to the Recycle Bin (Windows) or the Trash (macOS, Linux), where you can restore it. Turn on to delete files for good once you confirm, and free the space at once.",
+        type: "boolean", defaultValue: false },
+    { id: SET.accent, category: ["My Own Library", "Options", "Accent color"], name: "Accent color", sortOrder: 50,
+        tooltip: "Color of the highlights: main buttons, badges, selected items. The darker shades are computed from it.",
+        type: "color", defaultValue: "f66744", onChange: (v) => applyAccent(v) },
     { id: SET.charOrder, category: ["My Own Library", "Options", "Section order"], name: "Sidebar section order", sortOrder: 45,
         tooltip: "Whether CHARACTERS or CATEGORIES appears first in the left column.",
         type: "combo", options: ["Characters first", "Categories first"], defaultValue: "Characters first",
@@ -367,7 +401,11 @@ const CSS = `
   border:1px solid var(--mol-border);border-radius:16px;background:var(--mol-bg);color:var(--mol-fg);overflow:hidden;
   font-family:inherit;font-size:14px;z-index:10000;
   --mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
-  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f0cf98;--mol-danger:#e57373;--mol-input:#1a1a1a}
+  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f66744;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a}
+/* Shades of the accent colour (Accent color setting), mixed with the dark background. */
+.mol-dialog,.mol-picker{--mol-accent-panel:color-mix(in srgb,var(--mol-accent) 4%,#1b1b1b);
+  --mol-accent-bg:color-mix(in srgb,var(--mol-accent) 7%,#1b1b1b);--mol-accent-hover:color-mix(in srgb,var(--mol-accent) 14%,#1b1b1b);
+  --mol-accent-border:color-mix(in srgb,var(--mol-accent) 45%,#1b1b1b)}
 .mol-dialog::backdrop{background:rgba(0,0,0,.55)}
 /* Same size as ComfyUI's Templates window (BaseModalLayout, size md) */
 .mol-dialog.maximized{width:100vw;height:100vh;max-width:none;max-height:none;border:0;border-radius:0}
@@ -432,14 +470,14 @@ const CSS = `
 .mol-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:10px;border:1px solid var(--mol-border);
   background:var(--mol-card);color:var(--mol-fg);font:inherit;cursor:pointer}
 .mol-btn:hover{background:var(--mol-hover)}
-.mol-btn.primary{background:#2a241c;border-color:#7d6848;color:var(--mol-accent);font-weight:600}
-.mol-btn.primary:hover{background:#3a3124}
+.mol-btn.primary{background:var(--mol-accent-bg);border-color:var(--mol-accent-border);color:var(--mol-accent);font-weight:600}
+.mol-btn.primary:hover{background:var(--mol-accent-hover)}
 .mol-btn.danger{color:var(--mol-danger)}
 .mol-btn:disabled{opacity:.45;cursor:default}
 .mol-tagfilter{display:flex;gap:6px;flex-wrap:wrap}
 .mol-tag{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:8px;background:var(--mol-card);
   font-size:13px;color:#d6d6d6;cursor:pointer;white-space:nowrap}
-.mol-tag.active{background:var(--mol-accent);color:#1b1b1b}
+.mol-tag.active{background:var(--mol-accent);color:var(--mol-on-accent)}
 .mol-tag i{font-size:10px}
 .mol-grid-wrap{flex:1;overflow:auto;padding:12px 24px 30px}
 .mol-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:26px 24px}
@@ -454,20 +492,20 @@ const CSS = `
 .mol-check{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:8px;background:rgba(40,40,40,.82);
   border:2px solid #bbb;display:flex;align-items:center;justify-content:center;color:#111}
 .mol-check.on{background:var(--mol-accent);border-color:var(--mol-accent)}
-.mol-inlib{position:absolute;bottom:10px;right:10px;padding:4px 9px;border-radius:8px;background:rgba(240,207,152,.92);color:#1b1b1b;font-size:12px;font-weight:600}
+.mol-inlib{position:absolute;bottom:10px;right:10px;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,var(--mol-accent) 92%,transparent);color:var(--mol-on-accent);font-size:12px;font-weight:600}
 .mol-families{position:absolute;bottom:10px;left:10px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:62%;font-size:12px}
 .mol-families .mol-family{position:static;max-width:100%}
 .mol-family{position:absolute;bottom:10px;left:10px;padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.82);color:#fff;font-size:12px;font-weight:600;backdrop-filter:blur(4px);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-topright{position:absolute;top:10px;right:10px;display:flex;gap:6px;align-items:center;z-index:2}
 .mol-topright .mol-star{position:static}
-.mol-ver{padding:5px 9px;border-radius:8px;background:rgba(240,207,152,.94);color:#1b1b1b;font-size:12px;font-weight:700}
+.mol-ver{padding:5px 9px;border-radius:8px;background:color-mix(in srgb,var(--mol-accent) 94%,transparent);color:var(--mol-on-accent);font-size:12px;font-weight:700}
 .mol-thumb.stack{box-shadow:6px -6px 0 -1px #3b3b3b,12px -12px 0 -2px #2a2a2a}
 .mol-libcheck{left:10px;right:auto;opacity:0;transition:opacity .15s}
 .mol-card:hover .mol-libcheck,.mol-libcheck.on,.mol-selecting .mol-libcheck{opacity:1}
 .mol-card:hover .mol-badge.lib,.mol-selecting .mol-badge.lib{opacity:0}
-.mol-suggestion{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:12px 16px;margin:4px 0 22px;border:1px solid #7d6848;border-radius:12px;background:#221e18}
+.mol-suggestion{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:12px 16px;margin:4px 0 22px;border:1px solid var(--mol-accent-border);border-radius:12px;background:var(--mol-accent-panel)}
 .mol-sugthumbs{display:flex;padding-left:10px}
-.mol-sugthumbs img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:2px solid #221e18;margin-left:-10px;background:#2a2a2a}
+.mol-sugthumbs img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:2px solid var(--mol-accent-panel);margin-left:-10px;background:#2a2a2a}
 /* Centered while it fits; when it overflows it starts at the left so every version can be reached
    (justify-content:center would push the first ones out of reach). */
 .mol-strip{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:flex-start;padding:12px;background:linear-gradient(transparent,rgba(0,0,0,.8));overflow-x:auto}
@@ -522,7 +560,7 @@ const CSS = `
 .mol-jobtail{flex:none}
 .mol-jobtrack{flex:none;width:300px;max-width:30%;height:6px;border-radius:3px;background:var(--mol-hover);overflow:hidden}
 .mol-jobfill{display:block;height:100%;width:0;background:var(--mol-accent);transition:width .3s}
-.mol-chipcount{margin-left:6px;padding:0 7px;border-radius:9px;background:var(--mol-accent);color:#1b1b1b;font-size:12px;font-weight:700;line-height:18px}
+.mol-chipcount{margin-left:6px;padding:0 7px;border-radius:9px;background:var(--mol-accent);color:var(--mol-on-accent);font-size:12px;font-weight:700;line-height:18px}
 .mol-dd{display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 10px;min-width:0;
   border:1px solid rgba(255,255,255,.14);border-radius:8px;background:transparent;color:var(--mol-fg);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
 .mol-dd:hover,.mol-dd.open{background:var(--mol-hover)}
@@ -559,7 +597,8 @@ const CSS = `
 .mol-partbadge{padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.8);color:#ececec;font-size:12px;font-weight:normal;white-space:nowrap}
 .mol-brstack{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;z-index:2}
 .mol-brstack>*{position:static}
-.mol-partbadge.final{background:rgba(240,207,152,.9);color:#1b1b1b}
+.mol-inlib.mol-orphan{background:rgba(40,40,40,.88);color:#ececec;font-weight:normal}
+.mol-partbadge.final{background:color-mix(in srgb,var(--mol-accent) 90%,transparent);color:var(--mol-on-accent)}
 .mol-partbadge:not(.final){background:rgba(79,179,169,.92);color:#0f1f1d}
 .mol-filename{user-select:text;word-break:break-all}
 .mol-linkname{cursor:pointer}
@@ -580,7 +619,7 @@ const CSS = `
 .mol-confirmlist .row span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-confirmlist .row span:last-child{color:#9a9a9a;white-space:nowrap}
 .mol-picker{--mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
-  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f0cf98;--mol-danger:#e57373;--mol-input:#1a1a1a;max-width:560px;z-index:10001}
+  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f66744;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a;max-width:560px;z-index:10001}
 .mol-picker .mol-pathrow{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .mol-picker input{flex:1;min-width:0;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
 .mol-picker .mol-pathrow .mol-btn,.mol-picker .mol-drives .mol-btn{padding:6px 12px;white-space:nowrap}
@@ -598,7 +637,7 @@ const CSS = `
 .mol-dirbtn:hover{background:rgba(255,255,255,.08)}
 .mol-simlabel{display:flex;align-items:center;gap:8px;color:var(--mol-dim);font-size:13px;white-space:nowrap}
 .mol-suggestion-empty{padding:8px 16px;background:transparent;border-color:#3a3a3a}
-.mol-simscore{color:#f0cf98}
+.mol-simscore{color:var(--mol-accent)}
 .mol-review{position:absolute;inset:0;background:var(--mol-bg);display:flex;flex-direction:column;z-index:5}
 .mol-reviewgrid{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
 .mol-reviewcard.off .mol-thumb{opacity:.35;filter:grayscale(.7)}
@@ -629,7 +668,7 @@ const CSS = `
 .mol-field input[type=text],.mol-field textarea,.mol-field select{width:100%;box-sizing:border-box;background:var(--mol-input);color:var(--mol-fg);
   border:1px solid var(--mol-border);border-radius:9px;padding:9px 11px;font:inherit}
 .mol-field textarea{min-height:110px;resize:vertical;line-height:1.5}
-.mol-field input:focus,.mol-field textarea:focus,.mol-field select:focus{outline:0;border-color:#7d6848}
+.mol-field input:focus,.mol-field textarea:focus,.mol-field select:focus{outline:0;border-color:var(--mol-accent-border)}
 .mol-tagsbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--mol-input);border:1px solid var(--mol-border);
   border-radius:9px;padding:7px}
 .mol-tagsbox{position:relative}
@@ -661,13 +700,14 @@ const CSS = `
   background:color-mix(in srgb,currentColor 5%,transparent)}
 .mol-sidecard h2{margin:0;font-size:16px}
 .mol-sidecard p{margin:0;opacity:.7;font-size:12px;line-height:1.6}
-.mol-sidecard button{width:100%;padding:10px 12px;border:1px solid #7d6848;border-radius:9px;background:#2a241c;color:#f0cf98;
+.mol-sidecard button{width:100%;padding:10px 12px;border:1px solid var(--mol-accent-border);border-radius:9px;background:var(--mol-accent-bg);color:var(--mol-accent);
   font:600 13px/1.2 inherit;cursor:pointer}
 `;
 
 function injectCSS() {
     if (document.getElementById("mol-style")) return;
     document.head.append(h("style", { id: "mol-style" }, CSS));
+    applyAccent();  // after the main styles, so that it wins
 }
 
 // ------------------------------------------------------------------- state
@@ -712,6 +752,7 @@ const S = {
 };
 
 function applySnapshot(data) {
+    S.trashName = data.trash_name || S.trashName || "Recycle Bin";
     S.items = data.items || [];
     S.categories = data.categories || [];
     S.characters = data.characters || [];
@@ -863,7 +904,7 @@ function filteredItems() {
         if (S.view.startsWith("cat:") && it.category !== S.view.slice(4)) return false;
         if (S.view.startsWith("char:") && !(it.characters || []).includes(S.view.slice(5))) return false;
         if (S.kind !== "all" && it.kind !== S.kind) return false;
-        if (S.hideLibParts && it.part) return false;
+        if (S.hideLibParts && (it.part || it.step)) return false;
         if (S.families.size && !familiesOf(it).some((f) => S.families.has(f))) return false;
         if (S.tags.size) {
             const own = new Set((it.tags || []).map((t) => t.toLowerCase()));
@@ -1514,16 +1555,17 @@ function renderMain() {
                 if (S.versionsOpen) S.dialog.querySelector(".mol-main > .mol-grid-wrap")?.scrollTo({ top: 0, behavior: "smooth" });
             },
         }, icon("clone"), "Detect versions", nSug ? h("span", { class: "mol-chipcount" }, String(nSug)) : null);
-        const anyParts = S.items.some((x) => x.part);
+        const anyParts = S.items.some((x) => x.part || x.step);
         if (anyParts) {
             filters.push(h("button", {
-                class: "mol-chip" + (S.hideLibParts ? " active" : ""), title: "Hide the segments of combined videos",
+                class: "mol-chip" + (S.hideLibParts ? " active" : ""),
+                title: "Hide the intermediates: segments of combined videos, and steps of workflows that save several outputs",
                 onclick: () => { S.hideLibParts = !S.hideLibParts; savePref("hideLibParts", S.hideLibParts ? "1" : "0"); render(); },
-            }, icon(S.hideLibParts ? "eye-slash" : "eye"), "Hide parts"));
+            }, icon(S.hideLibParts ? "eye-slash" : "eye"), "Hide intermediates"));
         }
         if (S.libPartsPlan?.count) {
-            filters.push(h("button", { class: "mol-chip", title: "Segments whose final video is in your library too",
-                onclick: removeLibraryParts }, icon("trash"), `Remove parts (${fmtSize(S.libPartsPlan.total)})`));
+            filters.push(h("button", { class: "mol-chip", title: "Segments and steps whose result is in your library too",
+                onclick: removeLibraryParts }, icon("trash"), `Remove intermediates (${fmtSize(S.libPartsPlan.total)})`));
         }
         filters.push(h("span", { class: "mol-spacer" }), detectBtn, modelSel, sortBox);
     } else {
@@ -1533,9 +1575,10 @@ function renderMain() {
         }, icon("sparkles"), "New since last visit"));
         filters.push(h("span", { class: "mol-spacer" }), h("button", {
             class: "mol-chip" + (S.hideParts ? " active" : ""),
-            title: "Hide the segments of combined videos (Easy-Media projects and similar)" + (S.output.hiddenParts ? ` · ${S.output.hiddenParts} hidden` : ""),
+            title: "Hide the intermediates: segments of combined videos (Easy-Media projects and similar), and steps of workflows that save several outputs"
+                + (S.output.hiddenParts ? ` · ${S.output.hiddenParts} hidden` : ""),
             onclick: async () => { S.hideParts = !S.hideParts; savePref("hideParts", S.hideParts ? "1" : "0"); await loadOutput(true); render(); },
-        }, icon(S.hideParts ? "eye-slash" : "eye"), "Hide parts"), h("button", {
+        }, icon(S.hideParts ? "eye-slash" : "eye"), "Hide intermediates"), h("button", {
             class: "mol-chip" + (S.hideAdded ? " active" : ""), title: "Show only files not yet copied to the library",
             onclick: async () => { S.hideAdded = !S.hideAdded; await loadOutput(true); render(); },
         }, icon(S.hideAdded ? "eye-slash" : "eye"), "Hide added"));
@@ -1811,7 +1854,7 @@ function renderDuplicates() {
                 + "the other copies leave the library (files in output are not touched). "
                 + "To choose the copy kept, hover it and click Keep this one.")),
         h("button", { class: "mol-btn primary", onclick: () => {
-            if (confirm(`Merge all ${groups.length} groups?\n${extra} library cop${extra > 1 ? "ies" : "y"} will be removed. Files in the output folder are not touched.`))
+            if (confirm(`Merge all ${groups.length} groups?\n${extra} library cop${extra > 1 ? "ies" : "y"} will be removed. ${whereGo()}\nFiles in the output folder are not touched.`))
                 mergeDuplicates({ all: true, keep: groups.map(keptOf).map((x) => x.id) });
         } }, icon("check"), `Keep one of each (${groups.length})`)));
     for (const group of groups) {
@@ -1871,7 +1914,9 @@ function renderItemGrid() {
         const thumb = h("div", { class: "mol-thumb" + (n > 1 ? " stack" : "") },
             thumbEl(itemThumb(it), it.kind, itemFile(it), it),
             kindBadge(it.kind, "mol-badge lib"),
-            it.part || it.parts ? h("span", { class: "mol-brstack" },
+            it.part || it.parts || it.step ? h("span", { class: "mol-brstack" },
+                it.step ? h("span", { class: "mol-partbadge", title: "Step of a workflow run whose result is in your library" },
+                    `Step ${it.step.index} of ${it.step.count}`) : null,
                 it.part ? h("span", { class: "mol-partbadge", title: it.part.project ? `Segment of the Easy-Media project ${it.part.project}` : "Segment of a combined video" },
                     `Part ${it.part.index} of ${it.part.count}`) : null,
                 it.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from several parts" }, `Combo of ${it.parts}`) : null) : null,
@@ -2001,7 +2046,7 @@ async function removeWorks(works) {
     const versions = members.length > works.length ? ` (${members.length} versions)` : "";
     const what = works.length === 1 ? `"${works[0].cover.title}"${versions}` : `${works.length} creations${versions}`;
     if (!confirm(`Remove ${what} from your library, ${fmtSize(size)}?\n\n`
-        + "The library copies are deleted permanently. Files still in the output folder are not touched.")) return;
+        + `The library copies are removed. ${whereGo()}\nFiles still in the output folder are not touched.`)) return;
     const job = await runJob("Removing from library", members.map((m) => m.id), 1,
         (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
     if (!job) return;
@@ -2011,7 +2056,9 @@ async function removeWorks(works) {
     if (!job.cancelled) S.libSelected.clear();
     const removed = job.results.reduce((a, r) => a + (r.removed || 0), 0);
     const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
-    toast(job.cancelled ? "Removal stopped" : "Removed from library", `${removed} file(s), ${fmtSize(freed)} freed`);
+    const errors = job.results.flatMap((r) => r.errors || []);
+    if (errors.length) toast("Some creations were not removed", errors.slice(0, 5).map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+    toast(job.cancelled ? "Removal stopped" : "Removed from library", `${removed} file(s), ${freedText(freed)}`);
     render();
 }
 
@@ -2065,6 +2112,10 @@ function renderOutputGrid() {
                 f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
                     f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
                 f.parts ? h("span", { class: "mol-partbadge final", title: "Video combined from these parts, found in output" }, `Combo of ${f.parts}`) : null,
+                f.step ? h("span", { class: "mol-partbadge", title: `Step of a workflow run; its result is ${f.step.result.split("/").pop()}` },
+                    `Step ${f.step.index} of ${f.step.count}`) : null,
+                f.orphan ? h("span", { class: "mol-inlib mol-orphan", title: "In the library folder, but no creation uses it (restored from the trash, or copied there). Adding it keeps it where it is." },
+                    "In library folder") : null,
                 f.in_library ? h("span", { class: "mol-inlib" }, "In library")
                     : (S.lastVisit && f.mtime > S.lastVisit ? h("span", { class: "mol-inlib mol-new" }, "New") : null)));
         attachHoverPlay(thumb, f.kind, fileSource(f));
@@ -2282,13 +2333,23 @@ function updateJobProgress() {
     job.btn.disabled = job.cancel;
 }
 
+// Delete files of the Import view: from the output folder, whether they are
+// in the library or not, and files of the library folder no creation uses.
 async function deleteFromOutput(files) {
     if (!files.length) return;
     const total = files.reduce((a, f) => a + (f.size || 0), 0);
+    const inLib = files.filter((f) => f.in_library).length;
+    const notIn = files.length - inLib;
     const msg = files.length === 1
-        ? `Permanently delete "${files[0].name}" (${fmtSize(total)}) from the output folder?`
-        : `Permanently delete ${files.length} files (${fmtSize(total)}) from the output folder?`;
-    if (!confirm(msg + "\n\nYour library keeps its copies. This cannot be undone.")) return false;
+        ? `Delete "${files[0].name}" (${fmtSize(total)})?`
+        : `Delete ${files.length} files (${fmtSize(total)})?`;
+    const lines = [];
+    if (inLib) lines.push(files.length === 1 ? "It is in your library, which keeps its copy."
+        : `${inLib} ${inLib > 1 ? "are" : "is"} in your library, which keeps ${inLib > 1 ? "their copies" : "its copy"}.`);
+    if (notIn) lines.push(files.length === 1 ? "It is not in your library."
+        : `${notIn} ${notIn > 1 ? "are" : "is"} not in your library.`);
+    lines.push(whereGo());
+    if (!confirm(msg + "\n\n" + lines.join("\n"))) return false;
     const job = await runJob("Deleting from output", files.map((f) => ({ root: f.root, rel: f.rel })), 1,
         (chunk, info) => call("/output/delete", { files: chunk, job: info }));
     if (!job) return false;
@@ -2296,7 +2357,7 @@ async function deleteFromOutput(files) {
     const errors = job.results.flatMap((r) => r.errors || []);
     const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
     if (errors.length) toast("Some files were not deleted", errors.map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
-    toast(job.cancelled ? "Deletion stopped" : "Deleted from output", `${deleted.length} file(s), ${fmtSize(freed)} freed`
+    toast(job.cancelled ? "Deletion stopped" : "Deleted", `${deleted.length} file(s), ${freedText(freed)}`
         + (job.cancelled ? `, ${files.length - job.processed} left` : ""));
     for (const f of job.list.slice(0, job.processed)) S.selected.delete(f.root + "|" + f.rel);
     await refreshAfterJob();
@@ -2359,17 +2420,19 @@ function deleteParts() {
     const isMedia = (rel) => /\.(mp4|webm|mov|mkv|m4v|png|jpe?g|webp|gif)$/i.test(rel);
     const kindOf = (rel) => (/\.(png|jpe?g|webp|gif)$/i.test(rel) ? "image" : "video");
     for (const g of plan.groups) {
-        list.append(h("div", { class: "grp" }, clickable(`${g.final.split("/").pop()} · ${g.parts} part${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`, g.final,
+        const unit = g.kind === "steps" ? "step" : "part";
+        list.append(h("div", { class: "grp" }, clickable(`${g.final.split("/").pop()} · ${g.parts} ${unit}${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`, g.final,
             { kind: "video", src: fileSource({ root: "output", rel: g.final }), label: g.final.split("/").pop() })));
         for (const f of g.files) list.append(h("div", { class: "row" },
-            clickable(f.rel, f.rel, isMedia(f.rel) ? { kind: kindOf(f.rel), src: fileSource({ root: "output", rel: f.rel }), label: f.rel.split("/").pop() } : null),
+            clickable(f.index && g.kind === "steps" ? `Step ${f.index} · ${f.rel}` : f.rel, f.rel, isMedia(f.rel) ? { kind: kindOf(f.rel), src: fileSource({ root: "output", rel: f.rel }), label: f.rel.split("/").pop() } : null),
             h("span", {}, fmtSize(f.size))));
         if (g.kind === "easy-media") list.append(h("div", { class: "row" }, h("span", { style: { color: "#9a9a9a" } }, "Kept: project.json, out/"), h("span", {}, "")));
     }
     box.append(
         h("h3", {}, `Delete ${plan.files} file${plan.files > 1 ? "s" : ""} from output?`),
-        h("p", { class: "mol-hint" }, "Segments of combined videos already in your library (and, for Easy-Media projects, their context latents). "
-            + "The final videos and the projects' project.json stay. This cannot be undone."),
+        h("p", { class: "mol-hint" }, "Segments of combined videos already in your library (and, for Easy-Media projects, their context latents), "
+            + "and steps of workflow runs whose result is in your library. "
+            + "The final videos, the results and the projects' project.json stay. " + whereGo()),
         list,
         h("div", { class: "mol-hint", style: { marginTop: "8px" } }, `Total: ${fmtSize(plan.total)}`),
         h("div", { class: "mol-confirmbtns" },
@@ -2377,13 +2440,13 @@ function deleteParts() {
             h("button", { class: "mol-btn danger", onclick: async () => {
                 close();
                 const files = plan.groups.flatMap((g) => g.files.map((f) => ({ rel: f.rel })));
-                const job = await runJob("Deleting parts", files, 1, (chunk, info) => call("/output/parts/delete", { files: chunk, job: info }));
+                const job = await runJob("Deleting intermediates", files, 1, (chunk, info) => call("/output/parts/delete", { files: chunk, job: info }));
                 if (!job) return;
                 const deleted = job.results.reduce((a, r) => a + (r.deleted?.length || 0), 0);
                 const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
                 const errors = job.results.flatMap((r) => r.errors || []);
-                if (errors.length) toast("Some parts were not deleted", errors.slice(0, 5).map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
-                toast(job.cancelled ? "Deletion stopped" : "Parts deleted", `${deleted} file(s), ${fmtSize(freed)} freed`);
+                if (errors.length) toast("Some files were not deleted", errors.slice(0, 5).map((e) => `${e.rel}: ${e.error}`).join("\n"), "warn");
+                toast(job.cancelled ? "Deletion stopped" : "Intermediates deleted", `${deleted} file(s), ${freedText(freed)}`);
                 await refreshAfterJob();
             } }, icon("trash"), `Delete ${plan.files} file${plan.files > 1 ? "s" : ""}`)));
     box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
@@ -2401,18 +2464,20 @@ function removeLibraryParts() {
     const list = h("div", { class: "mol-confirmlist" });
     const entries = [];
     for (const g of plan.groups) {
-        list.append(h("div", { class: "grp" }, `${g.final} · ${g.parts.length} part${g.parts.length > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
+        const unit = g.kind === "steps" ? "Step" : "Part";
+        list.append(h("div", { class: "grp" }, `${g.final} · ${g.parts.length} ${unit.toLowerCase()}${g.parts.length > 1 ? "s" : ""} · ${fmtSize(g.total)}`));
         for (const p of g.parts) {
             const it = S.items.find((x) => x.id === p.id);
-            const k = it ? entries.push({ kind: it.kind, src: itemFile(it), label: `Part ${p.index} · ${p.title}` }) - 1 : -1;
+            const k = it ? entries.push({ kind: it.kind, src: itemFile(it), label: `${unit} ${p.index} · ${p.title}` }) - 1 : -1;
             list.append(h("div", { class: "row" },
                 h("span", { title: p.name || p.title, class: k >= 0 ? "mol-linkname" : "", onclick: k >= 0 ? () => previewOver(box, entries, k) : null },
-                    `Part ${p.index} · ${p.title}`), h("span", {}, fmtSize(p.size))));
+                    `${unit} ${p.index} · ${p.title}`), h("span", {}, fmtSize(p.size))));
         }
     }
     box.append(
-        h("h3", {}, `Remove ${plan.count} part${plan.count > 1 ? "s" : ""} from your library?`),
-        h("p", { class: "mol-hint" }, "Segments of combined videos whose final video is in your library. Their library copies are deleted; the final videos stay, and files in the output folder are not touched."),
+        h("h3", {}, `Remove ${plan.count} intermediate${plan.count > 1 ? "s" : ""} from your library?`),
+        h("p", { class: "mol-hint" }, "Segments of combined videos whose final video is in your library, and steps of workflow runs whose result is in your library. "
+            + "Their library copies are removed; the final videos and results stay, and files in the output folder are not touched. " + whereGo()),
         list,
         h("div", { class: "mol-hint", style: { marginTop: "8px" } }, `Total: ${fmtSize(plan.total)}`),
         h("div", { class: "mol-confirmbtns" },
@@ -2420,13 +2485,13 @@ function removeLibraryParts() {
             h("button", { class: "mol-btn danger", onclick: async () => {
                 close();
                 const ids = plan.groups.flatMap((g) => g.parts.map((p) => p.id));
-                const job = await runJob("Removing parts", ids, 1, (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
+                const job = await runJob("Removing intermediates", ids, 1, (chunk, info) => call("/items/remove", { ids: chunk, job: info }));
                 if (!job) return;
                 const removed = job.results.reduce((a, r) => a + (r.removed || 0), 0);
                 const freed = job.results.reduce((a, r) => a + (r.freed || 0), 0);
-                toast(job.cancelled ? "Removal stopped" : "Parts removed", `${removed} part(s), ${fmtSize(freed)} freed`);
+                toast(job.cancelled ? "Removal stopped" : "Intermediates removed", `${removed} file(s), ${freedText(freed)}`);
                 await refreshAfterJob();
-            } }, icon("trash"), `Remove ${plan.count} part${plan.count > 1 ? "s" : ""}`)));
+            } }, icon("trash"), `Remove ${plan.count}`)));
     box.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
     S.dialog.append(box);
     box.showModal();
@@ -2436,7 +2501,8 @@ function removeAfterBox(get, set) {
     const box = h("input", { type: "checkbox" });
     box.checked = get();
     box.addEventListener("change", () => set(box.checked));
-    return h("label", { class: "mol-checkline", title: "Delete the file from the output folder once it is safely copied" },
+    return h("label", { class: "mol-checkline", title: "Delete the file from the output folder once it is safely copied "
+        + "(to the Recycle Bin or Trash, unless Delete immediately is on in the settings)" },
         box, "Remove from output after adding");
 }
 
@@ -2446,7 +2512,7 @@ function renderOutputBar() {
     const hidden = [...S.selected].filter((k) => !shownKeys.has(k)).length;
     const sel = selectedFiles();
     const toAdd = sel.filter((f) => !f.in_library);
-    const toDelete = sel.filter((f) => f.in_library);
+    const toDelete = sel;
     return h("div", { class: "mol-actionbar" },
         h("button", { class: "mol-btn", onclick: () => selectWholeFolder("missing"),
             title: "Every file of the output folder (in this view) not copied to the library yet, including those not displayed" },
@@ -2457,10 +2523,11 @@ function renderOutputBar() {
         S.selected.size ? h("span", { style: { color: "var(--mol-dim)" } },
             `${S.selected.size} selected` + (hidden ? ` (${hidden} not displayed)` : "")) : null,
         S.selected.size ? h("button", { class: "mol-btn", onclick: () => { S.selected.clear(); S.selInfo.clear(); render(); } }, "Clear") : null,
-        toDelete.length ? h("button", { class: "mol-btn danger", onclick: () => deleteFromOutput(toDelete) },
-            icon("trash"), `Delete ${toDelete.length} from output`) : null,
-        S.partsPlan?.files ? h("button", { class: "mol-btn danger", title: "Segments of combined videos whose final video is in your library",
-            onclick: deleteParts }, icon("trash"), `Delete parts (${fmtSize(S.partsPlan.total)})`) : null,
+        toDelete.length ? h("button", { class: "mol-btn danger",
+            title: `Delete the ${toDelete.length} selected file${toDelete.length > 1 ? "s" : ""}, in your library or not (after confirmation)`,
+            onclick: () => deleteFromOutput(toDelete) }, icon("trash"), "Delete") : null,
+        S.partsPlan?.files ? h("button", { class: "mol-btn danger", title: "Segments of combined videos and steps of runs whose result is in your library",
+            onclick: deleteParts }, icon("trash"), `Delete intermediates (${fmtSize(S.partsPlan.total)})`) : null,
         h("span", { class: "mol-spacer" }),
         // Category, characters and tags are given afterwards, in the library.
         removeAfterBox(() => S.removeAfter, (v) => { S.removeAfter = v; render(); }),
@@ -2921,11 +2988,11 @@ function fillItemDetail(it, body, info, members = [it], ver = 0) {
 
     let armed = false;
     const removeBtn = h("button", { class: "mol-btn danger", onclick: async () => {
-        if (!armed) { armed = true; removeBtn.lastChild.textContent = "Click again to confirm"; return; }
+        if (!armed) { armed = true; removeBtn.lastChild.textContent = "Click again to confirm"; removeBtn.title = whereGo(); return; }
         try {
             await call("/item/remove", { id: it.id });
             await loadLibrary();
-            toast("Removed from library", it.title);
+            toast("Removed from library", `${it.title} (${deletesNow() ? "deleted" : `moved to the ${trashName()}`})`);
             closeDetail();
         } catch (e) { toast("Could not remove", e.message, "error"); }
     } }, icon("trash"), h("span", {}, versioned ? `Remove v${ver + 1}` : "Remove"));
@@ -2993,20 +3060,21 @@ function fillFileDetail(f, body, info) {
     call(`/inspect?${new URLSearchParams({ root: f.root, rel: f.rel })}`).then((d) => {
         state.remove();
         body.append(...summaryBlocks(d.summary).filter(Boolean));
+        const deleteBtn = h("button", { class: "mol-btn danger", title: "Delete this file (after confirmation)", onclick: async () => {
+            if (await deleteFromOutput([{ ...f, in_library: d.in_library }])) { closeDetail(); await loadOutput(true); render(); }
+        } }, icon("trash"), "Delete");
         if (d.in_library) {
             foot.append(
                 h("button", { class: "mol-btn primary", onclick: () => openItemById(d.in_library) },
                     icon("bookmark"), "Already in library, open it"),
-                h("button", { class: "mol-btn danger", onclick: async () => {
-                    if (await deleteFromOutput([f])) closeDetail();
-                } }, icon("trash"), "Delete from output"));
+                deleteBtn);
         } else {
             body.append(
                 h("div", { class: "mol-field" }, h("label", {}, "Category"), categorySelect(category, (v) => { category = v; })),
                 h("div", { class: "mol-field" }, h("label", {}, "Characters"), chars.el),
                 h("div", { class: "mol-field" }, h("label", {}, "Tags"), tags.el),
-                removeAfterBox(() => removeAfter, (v) => { removeAfter = v; }));
-            foot.append(addBtn);
+                f.root === "output" ? removeAfterBox(() => removeAfter, (v) => { removeAfter = v; }) : null);
+            foot.append(addBtn, deleteBtn);
         }
     }).catch((e) => { state.textContent = "Could not read the file: " + e.message; });
 }
