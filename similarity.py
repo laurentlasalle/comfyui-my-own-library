@@ -51,7 +51,7 @@ def _image_sig(img):
 
 def image_signature(path):
     from PIL import Image
-    with Image.open(path) as img:
+    with md.open_image(path) as img:
         img.seek(0)
         return {"kind": "image", "v": SIG_VERSION, **_image_sig(img)}
 

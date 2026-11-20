@@ -65,6 +65,7 @@ Click the **My Own Library** icon (bookmark) in the left sidebar: the window ope
 | Intermediates | Segments and steps together. **Hide intermediates** (on by default in the Import view) hides them. Once the final video or the result is in your library, **Delete intermediates** lists the files that can go (segments and, for Easy-Media, their context latents, and steps), grouped by final video or result with their size, and deletes them after confirmation. The project's `project.json` and `out/` folder are always kept. |
 | Intermediates already in the library | Segments and steps added to the library are recognized too and show the same **Part 2 of 4**, **Combo of N** or **Step 2 of 5**. **Hide intermediates** hides them; **Remove intermediates** (shown when their final video or result is in the library too) lists them with their size and removes them from the library. Files in the output folder are not touched. |
 | Files found in the library folder | A file of the library folder that no creation uses (restored from the Recycle Bin or Trash after a deletion, or copied there by hand) is shown in the Import view with **In library folder**. Adding it reads its workflow, prompt and dimensions again, as for a file of `output`, and keeps it where it is. Its category, characters, tags and versions are not restored. |
+| Files without a workflow | A file whose workflow and prompt could not be read shows **No workflow** in the bottom-left corner of its card, in the Import view and in the library. In the library, the **No workflow** filter shows only those creations. |
 | Remove a creation | **Remove** in its detail panel, clicked twice. This deletes the library copy only, never the file in `output`. |
 | Work on several creations | Tick cards (checkbox on hover) or use **Select all** for the whole current view. Then choose a category in **Move to category**, characters in **Characters to add** and tags in **Tags to add**, and click **Apply** (the category replaces the current one, characters and tags are added). **Delete** removes the selection from the library after confirmation (its files go to the Recycle Bin or Trash unless **Delete immediately** is on) (a card with versions goes with all its versions), and **Group** groups it as versions of one work. |
 
@@ -95,7 +96,7 @@ My Own Library has its own section in ComfyUI's **Settings** (gear icon), saved 
 
 | Section | Setting | Default | What it does |
 |---|---|---|---|
-| Options | Accent color | `#f66744` | Color of the highlights (main buttons, badges, selected items); the darker shades are computed from it, and the text on it is black or white, whichever reads better. |
+| Options | Accent color | `#4fb3a9` | Color of the highlights (main buttons, badges, selected items); the darker shades are computed from it, and the text on it is black or white, whichever reads better. |
 | Options | New files badge on sidebar | On | Number of new output files on the library icon. |
 | Options | Play videos on hover | On | Muted preview when the mouse is over a video card. |
 | Options | Center thumbnails on faces | On | When a picture has a single face, the square crop of the grid is centered on it; portrait pictures are framed on their upper third. |
@@ -142,6 +143,7 @@ Background work (analyzing creations added with an older version, checking video
 |---|---|
 | PNG | `prompt` and `workflow` text chunks (Save Image) |
 | WebP, JPEG | EXIF strings `prompt:` and `workflow:` (Save Animated WEBP and similar) |
+| AVIF (still or animated) | the same EXIF strings, in the file's Exif item (ComfyUI's Save Image (Advanced)). Thumbnails use Pillow when it reads AVIF (11.3 and later), otherwise ffmpeg. |
 | MP4, MOV, M4V | companion PNG, otherwise the `prompt` and `workflow` tags (ComfyUI's Save Video, Easy-Media) or the `comment` tag (VideoHelperSuite) |
 | WebM, MKV | companion PNG only |
 | FLAC | Vorbis comments `prompt` and `workflow` (ComfyUI's Save Audio and similar) |

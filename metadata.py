@@ -8,6 +8,9 @@ positive/negative prompts, seeds, models and LoRAs.
 Supported sources:
 - PNG: tEXt chunks "prompt" and "workflow" (Save Image).
 - WebP / JPEG: EXIF strings "prompt:{...}" / "workflow:{...}" (Save Animated WEBP and similar).
+- AVIF (still or animated): the same EXIF strings, in an Exif item of the
+  file's meta box (Save Image (Advanced) of ComfyUI). Read with our own small
+  parser, so it works whatever the version of Pillow.
 - MP4 / MOV / M4V: the "comment" tag written by VideoHelperSuite, a JSON object
   with "prompt" and "workflow" keys.
 - Any video with a companion PNG of the same name (VideoHelperSuite saves one
@@ -21,7 +24,7 @@ import os
 import re
 import struct
 
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"}
 VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv", ".m4v", ".avi"}
 AUDIO_EXTS = {".flac", ".wav", ".mp3", ".ogg", ".opus", ".m4a", ".aac"}
 MP4_LIKE = {".mp4", ".mov", ".m4v", ".m4a"}
@@ -167,8 +170,31 @@ def _loads(value):
 # Raw extraction
 # --------------------------------------------------------------------------
 
+def _from_exif_values(values):
+    """(prompt, workflow) from EXIF values written as "prompt:{...}" and
+    "workflow:{...}" strings."""
+    prompt = workflow = None
+    for value in values:
+        if isinstance(value, bytes):
+            try:
+                value = value.decode("utf-8", "ignore")
+            except Exception:
+                continue
+        if not isinstance(value, str) or ":" not in value:
+            continue
+        key, _, payload = value.partition(":")
+        key = key.strip().lower()
+        if key == "prompt" and prompt is None:
+            prompt = _loads(payload)
+        elif key == "workflow" and workflow is None:
+            workflow = _loads(payload)
+    return prompt, workflow
+
+
 def _from_image(path):
     """Return (prompt, workflow) from an image file, or (None, None)."""
+    if path.lower().endswith(".avif"):
+        return _from_avif(path)
     from PIL import Image  # Pillow is always present in ComfyUI
 
     prompt = workflow = None
@@ -182,21 +208,161 @@ def _from_image(path):
             except Exception:
                 exif = None
             if exif:
-                for value in exif.values():
-                    if isinstance(value, bytes):
-                        try:
-                            value = value.decode("utf-8", "ignore")
-                        except Exception:
-                            continue
-                    if not isinstance(value, str) or ":" not in value:
-                        continue
-                    key, _, payload = value.partition(":")
-                    key = key.strip().lower()
-                    if key == "prompt" and prompt is None:
-                        prompt = _loads(payload)
-                    elif key == "workflow" and workflow is None:
-                        workflow = _loads(payload)
+                prompt, workflow = _from_exif_values(exif.values())
     return prompt, workflow
+
+
+# --------------------------------------------------------------------- AVIF
+def _boxes(data, start, end):
+    """Yield (type, payload_start, payload_end) for the ISOBMFF boxes in data[start:end]."""
+    pos = start
+    while pos + 8 <= end:
+        size, btype = struct.unpack(">I4s", data[pos:pos + 8])
+        head = 8
+        if size == 1:
+            if pos + 16 > end:
+                return
+            size = struct.unpack(">Q", data[pos + 8:pos + 16])[0]
+            head = 16
+        elif size == 0:
+            size = end - pos
+        if size < head or pos + size > end:
+            return
+        yield btype, pos + head, pos + size
+        pos += size
+
+
+def _uint(data, pos, size):
+    return int.from_bytes(data[pos:pos + size], "big") if size else 0
+
+
+def avif_exif(path):
+    """Raw TIFF data of the Exif item of an AVIF file, or None. Only the
+    small boxes are read, never the image data."""
+    with open(path, "rb") as f:
+        # The meta box is near the start; read top-level box headers until it.
+        meta = None
+        pos = 0
+        size_total = os.fstat(f.fileno()).st_size
+        while pos + 8 <= size_total:
+            f.seek(pos)
+            head = f.read(16)
+            if len(head) < 8:
+                break
+            size, btype = struct.unpack(">I4s", head[:8])
+            hlen = 8
+            if size == 1:
+                size = struct.unpack(">Q", head[8:16])[0]
+                hlen = 16
+            elif size == 0:
+                size = size_total - pos
+            if size < hlen:
+                break
+            if btype == b"meta":
+                if size > 16 << 20:
+                    return None
+                f.seek(pos + hlen)
+                meta = f.read(size - hlen)
+                break
+            pos += size
+        if not meta or len(meta) < 4:
+            return None
+        body_start = 4  # meta is a full box: version and flags first
+        exif_id, locations = None, {}
+        for btype, s, e in _boxes(meta, body_start, len(meta)):
+            if btype == b"iinf":
+                version = meta[s]
+                count_size = 2 if version == 0 else 4
+                for itype, a, b in _boxes(meta, s + 4 + count_size, e):
+                    if itype != b"infe" or b - a < 12:
+                        continue
+                    iver = meta[a]
+                    if iver < 2:
+                        continue
+                    id_size = 2 if iver == 2 else 4
+                    item_id = _uint(meta, a + 4, id_size)
+                    item_type = meta[a + 4 + id_size + 2:a + 4 + id_size + 6]
+                    if item_type == b"Exif":
+                        exif_id = item_id
+            elif btype == b"iloc":
+                version = meta[s]
+                p = s + 4
+                offset_size, length_size = meta[p] >> 4, meta[p] & 15
+                base_size, index_size = meta[p + 1] >> 4, (meta[p + 1] & 15) if version in (1, 2) else 0
+                p += 2
+                count = _uint(meta, p, 2 if version < 2 else 4)
+                p += 2 if version < 2 else 4
+                for _ in range(count):
+                    item_id = _uint(meta, p, 2 if version < 2 else 4)
+                    p += 2 if version < 2 else 4
+                    method = 0
+                    if version in (1, 2):
+                        method = _uint(meta, p, 2) & 15
+                        p += 2
+                    p += 2  # data reference index
+                    base = _uint(meta, p, base_size)
+                    p += base_size
+                    extents = []
+                    n = _uint(meta, p, 2)
+                    p += 2
+                    for _ in range(n):
+                        p += index_size
+                        off = _uint(meta, p, offset_size)
+                        p += offset_size
+                        length = _uint(meta, p, length_size)
+                        p += length_size
+                        extents.append((base + off, length))
+                    locations[item_id] = (method, extents)
+        if exif_id is None or exif_id not in locations:
+            return None
+        method, extents = locations[exif_id]
+        if method != 0:
+            return None  # stored inside the file's idat box: not written by ComfyUI
+        payload = b""
+        for off, length in extents:
+            if length > 16 << 20:
+                return None
+            f.seek(off)
+            payload += f.read(length)
+    if len(payload) < 4:
+        return None
+    # The item starts with the offset of the TIFF header (usually 0).
+    skip = struct.unpack(">I", payload[:4])[0]
+    return payload[4 + skip:]
+
+
+def _from_avif(path):
+    tiff = avif_exif(path)
+    if not tiff:
+        return None, None
+    from PIL import Image
+    exif = Image.Exif()
+    exif.load(tiff)
+    return _from_exif_values(exif.values())
+
+
+def open_image(path):
+    """Open an image with Pillow. An AVIF that this Pillow can't read (before
+    11.3, or built without AVIF) is decoded with ffmpeg instead: its first
+    frame, as a PNG in memory."""
+    from PIL import Image
+    try:
+        return Image.open(path)
+    except Exception:
+        if not path.lower().endswith(".avif"):
+            raise
+    import io
+    import subprocess
+    import sys
+    exe = ffmpeg_exe()
+    if not exe:
+        raise OSError("Can't read %s: this Pillow has no AVIF support and ffmpeg was not found" % os.path.basename(path))
+    out = subprocess.run([exe, "-v", "error", "-i", path, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                         capture_output=True, timeout=120,
+                         creationflags=0x08000000 if sys.platform == "win32" else 0).stdout
+    if not out:
+        raise OSError("ffmpeg could not decode %s" % os.path.basename(path))
+    return Image.open(io.BytesIO(out))
 
 
 def _iter_atoms(f, start, end):

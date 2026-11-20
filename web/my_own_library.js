@@ -96,7 +96,7 @@ const SET = {
     deleteNow: "MyOwnLibrary.Files.DeleteImmediately",
     accent: "MyOwnLibrary.Options.AccentColor",
 };
-const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first", [SET.removeNoWorkflow]: false, [SET.deleteNow]: false, [SET.accent]: "f66744" };
+const SETTING_DEFAULTS = { [SET.faces]: true, [SET.hover]: true, [SET.badge]: true, [SET.removeAfter]: false, [SET.similarity]: "Normal", [SET.libraryDir]: "", [SET.charOrder]: "Characters first", [SET.removeNoWorkflow]: false, [SET.deleteNow]: false, [SET.accent]: "4fb3a9" };
 
 function getSetting(id) {
     try {
@@ -122,8 +122,8 @@ const rerender = () => { if (S.dialog?.open) render(); };
 // darker shades are mixed from it in CSS. The text on accent backgrounds is
 // black or white, whichever reads better on it.
 function applyAccent(value) {
-    let hex = String(value ?? getSetting(SET.accent) ?? "f66744").trim().replace(/^#/, "");
-    if (!/^([0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex)) hex = "f66744";
+    let hex = String(value ?? getSetting(SET.accent) ?? "4fb3a9").trim().replace(/^#/, "");
+    if (!/^([0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex)) hex = "4fb3a9";
     hex = hex.slice(0, 6);
     const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
         .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -161,7 +161,7 @@ const SETTINGS = [
         type: "boolean", defaultValue: false },
     { id: SET.accent, category: ["My Own Library", "Options", "Accent color"], name: "Accent color", sortOrder: 50,
         tooltip: "Color of the highlights: main buttons, badges, selected items. The darker shades are computed from it.",
-        type: "color", defaultValue: "f66744", onChange: (v) => applyAccent(v) },
+        type: "color", defaultValue: "4fb3a9", onChange: (v) => applyAccent(v) },
     { id: SET.charOrder, category: ["My Own Library", "Options", "Section order"], name: "Sidebar section order", sortOrder: 45,
         tooltip: "Whether CHARACTERS or CATEGORIES appears first in the left column.",
         type: "combo", options: ["Characters first", "Categories first"], defaultValue: "Characters first",
@@ -401,7 +401,7 @@ const CSS = `
   border:1px solid var(--mol-border);border-radius:16px;background:var(--mol-bg);color:var(--mol-fg);overflow:hidden;
   font-family:inherit;font-size:14px;z-index:10000;
   --mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
-  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f66744;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a}
+  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#4fb3a9;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a}
 /* Shades of the accent colour (Accent color setting), mixed with the dark background. */
 .mol-dialog,.mol-picker{--mol-accent-panel:color-mix(in srgb,var(--mol-accent) 4%,#1b1b1b);
   --mol-accent-bg:color-mix(in srgb,var(--mol-accent) 7%,#1b1b1b);--mol-accent-hover:color-mix(in srgb,var(--mol-accent) 14%,#1b1b1b);
@@ -495,6 +495,7 @@ const CSS = `
 .mol-inlib{position:absolute;bottom:10px;right:10px;padding:4px 9px;border-radius:8px;background:color-mix(in srgb,var(--mol-accent) 92%,transparent);color:var(--mol-on-accent);font-size:12px;font-weight:600}
 .mol-families{position:absolute;bottom:10px;left:10px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:62%;font-size:12px}
 .mol-families .mol-family{position:static;max-width:100%}
+.mol-family.mol-nowf{background:rgba(20,20,20,.82);color:var(--mol-dim);font-weight:normal;font-style:italic}
 .mol-family{position:absolute;bottom:10px;left:10px;padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.82);color:#fff;font-size:12px;font-weight:600;backdrop-filter:blur(4px);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-topright{position:absolute;top:10px;right:10px;display:flex;gap:6px;align-items:center;z-index:2}
 .mol-topright .mol-star{position:static}
@@ -589,17 +590,18 @@ const CSS = `
 .mol-ddclear:hover{opacity:1}
 .mol-ddclear:disabled{opacity:.3;cursor:default}
 .mol-version{margin-bottom:4px;color:var(--mol-dim)}
-.mol-stripitem.part{border-color:#4fb3a9}
-.mol-stripitem.part.active{border-color:var(--mol-accent);box-shadow:0 0 0 2px #4fb3a9}
-.mol-striptag{position:absolute;right:3px;top:3px;font-size:10px;font-weight:700;color:#0f1f1d;background:#4fb3a9;border-radius:4px;padding:0 4px}
-.mol-parttag{margin-left:10px;font-size:12px;font-weight:600;color:#4fb3a9}
+.mol-stripitem.part{border-color:#6a6a6a}
+.mol-stripitem.part.active{border-color:var(--mol-accent);box-shadow:0 0 0 2px #6a6a6a}
+.mol-striptag{position:absolute;right:3px;top:3px;font-size:10px;font-weight:700;color:#ececec;background:#3a3b3e;border-radius:4px;padding:0 4px}
+.mol-parttag{margin-left:10px;font-size:12px;font-weight:600;color:var(--mol-dim)}
 .mol-parttag.final{color:var(--mol-accent)}
 .mol-partbadge{padding:4px 9px;border-radius:8px;background:rgba(20,20,20,.8);color:#ececec;font-size:12px;font-weight:normal;white-space:nowrap}
 .mol-brstack{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;z-index:2}
 .mol-brstack>*{position:static}
 .mol-inlib.mol-orphan{background:rgba(40,40,40,.88);color:#ececec;font-weight:normal}
 .mol-partbadge.final{background:color-mix(in srgb,var(--mol-accent) 90%,transparent);color:var(--mol-on-accent)}
-.mol-partbadge:not(.final){background:rgba(79,179,169,.92);color:#0f1f1d}
+/* Segments and steps: dark grey, apart from the accent colour. */
+.mol-partbadge:not(.final){background:rgba(40,40,40,.88);color:#ececec}
 .mol-filename{user-select:text;word-break:break-all}
 .mol-linkname{cursor:pointer}
 .mol-linkname:hover{color:#fff;text-decoration:underline}
@@ -619,7 +621,7 @@ const CSS = `
 .mol-confirmlist .row span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mol-confirmlist .row span:last-child{color:#9a9a9a;white-space:nowrap}
 .mol-picker{--mol-bg:#171718;--mol-panel:#262729;--mol-card:#262729;--mol-hover:#2f3034;--mol-border:#2f3034;
-  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#f66744;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a;max-width:560px;z-index:10001}
+  --mol-fg:#ececec;--mol-dim:#9a9a9a;--mol-accent:#4fb3a9;--mol-on-accent:#1b1b1b;--mol-danger:#e57373;--mol-input:#1a1a1a;max-width:560px;z-index:10001}
 .mol-picker .mol-pathrow{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .mol-picker input{flex:1;min-width:0;background:var(--mol-input);color:var(--mol-fg);border:1px solid #555;border-radius:8px;padding:7px 9px;font:inherit}
 .mol-picker .mol-pathrow .mol-btn,.mol-picker .mol-drives .mol-btn{padding:6px 12px;white-space:nowrap}
@@ -883,7 +885,9 @@ function familiesOf(it) {
     return it.summary?.family ? [it.summary.family] : [];
 }
 
-function familyStack(list) {
+function familyStack(list, noWorkflow = false) {
+    if (noWorkflow) return h("span", { class: "mol-families" },
+        h("span", { class: "mol-family mol-nowf", title: "No workflow or prompt could be read from this file" }, "No workflow"));
     if (!list?.length) return null;
     return h("span", { class: "mol-families" }, ...list.map((f) => h("span", { class: "mol-family", title: f }, f)));
 }
@@ -905,6 +909,7 @@ function filteredItems() {
         if (S.view.startsWith("char:") && !(it.characters || []).includes(S.view.slice(5))) return false;
         if (S.kind !== "all" && it.kind !== S.kind) return false;
         if (S.hideLibParts && (it.part || it.step)) return false;
+        if (S.noWorkflowOnly && (it.has_workflow || it.has_prompt)) return false;
         if (S.families.size && !familiesOf(it).some((f) => S.families.has(f))) return false;
         if (S.tags.size) {
             const own = new Set((it.tags || []).map((t) => t.toLowerCase()));
@@ -1563,6 +1568,12 @@ function renderMain() {
                 onclick: () => { S.hideLibParts = !S.hideLibParts; savePref("hideLibParts", S.hideLibParts ? "1" : "0"); render(); },
             }, icon(S.hideLibParts ? "eye-slash" : "eye"), "Hide intermediates"));
         }
+        if (S.items.some((x) => !(x.has_workflow || x.has_prompt))) {
+            filters.push(h("button", {
+                class: "mol-chip" + (S.noWorkflowOnly ? " active" : ""), title: "Show only the creations whose workflow and prompt could not be read",
+                onclick: () => { S.noWorkflowOnly = !S.noWorkflowOnly; render(); },
+            }, icon("filter"), "No workflow"));
+        }
         if (S.libPartsPlan?.count) {
             filters.push(h("button", { class: "mol-chip", title: "Segments and steps whose result is in your library too",
                 onclick: removeLibraryParts }, icon("trash"), `Remove intermediates (${fmtSize(S.libPartsPlan.total)})`));
@@ -1924,7 +1935,7 @@ function renderItemGrid() {
             h("span", { class: "mol-topright" },
                 it.favorite ? h("span", { class: "mol-star" }, icon("star-fill")) : null,
                 n > 1 ? h("span", { class: "mol-ver", title: `${n} versions` }, `v${n}`) : null),
-            familyStack(familiesOf(it)));
+            familyStack(familiesOf(it), !(it.has_workflow || it.has_prompt)));
         attachHoverPlay(thumb, it.kind, itemFile(it));
         const chips = [];
         (it.characters || []).slice(0, 2).forEach((c) => chips.push(h("span", { class: "mol-tag mol-chartag" }, h("i", { class: "icon-[lucide--user]", style: { fontSize: "11px" } }), c)));
@@ -2107,7 +2118,7 @@ function renderOutputGrid() {
             thumbEl(fileThumb(f), f.kind, fileSource(f)),
             kindBadge(f.kind),
             check,
-            familyStack(f.families),
+            familyStack(f.families, f.no_workflow),
             h("span", { class: "mol-brstack" },
                 f.part ? h("span", { class: "mol-partbadge", title: f.part.project ? `Segment of the Easy-Media project ${f.part.project}` : "Segment of a combined video" },
                     f.part.index ? `Part ${f.part.index} of ${f.part.count}` : "Part") : null,
@@ -2417,8 +2428,8 @@ function deleteParts() {
         const k = entries.push(entry) - 1;
         return h("span", { title, class: "mol-linkname", onclick: () => previewOver(box, entries, k) }, label);
     };
-    const isMedia = (rel) => /\.(mp4|webm|mov|mkv|m4v|png|jpe?g|webp|gif)$/i.test(rel);
-    const kindOf = (rel) => (/\.(png|jpe?g|webp|gif)$/i.test(rel) ? "image" : "video");
+    const isMedia = (rel) => /\.(mp4|webm|mov|mkv|m4v|png|jpe?g|webp|gif|avif)$/i.test(rel);
+    const kindOf = (rel) => (/\.(png|jpe?g|webp|gif|avif)$/i.test(rel) ? "image" : "video");
     for (const g of plan.groups) {
         const unit = g.kind === "steps" ? "step" : "part";
         list.append(h("div", { class: "grp" }, clickable(`${g.final.split("/").pop()} · ${g.parts} ${unit}${g.parts > 1 ? "s" : ""} · ${fmtSize(g.total)}`, g.final,

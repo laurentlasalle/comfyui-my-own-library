@@ -2,6 +2,12 @@
 
 Versions follow the usual pattern: the middle number goes up with new features, the last one with fixes only. The version is shown at the bottom of the library's left column and in ComfyUI's terminal at startup.
 
+## 0.18.0 (2026-11-20)
+
+- **AVIF** images, still or animated, are recognized in the Import view and in the library. Their workflow and prompt are read from the Exif item written by ComfyUI's **Save Image (Advanced)**. Thumbnails use Pillow when it reads AVIF (11.3 and later), otherwise ffmpeg.
+- **No workflow**: a file whose workflow and prompt could not be read shows **No workflow** on its card, in the Import view and in the library. In the library, a **No workflow** filter shows only those creations.
+- The default **Accent color** is now teal (`#4fb3a9`), as the orange was too close to the red of deletions. Badges of segments and steps (**Part 2 of 4**, **Step 2 of 5**) are now dark grey, apart from the accent color.
+
 ## 0.17.0 (2026-11-12)
 
 - **Delete in the Import view**: one red **Delete** button for the whole selection, in your library or not, and in a file's panel too. The confirmation says how many files are in your library (which keeps its copies) and how many are not. A video or sound modified in the last few seconds is not deleted.

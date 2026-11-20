@@ -26,7 +26,7 @@ def file_sha256(path):
 def _image_hash(path):
     from PIL import Image
     h = hashlib.sha256()
-    with Image.open(path) as img:
+    with md.open_image(path) as img:
         frames = getattr(img, "n_frames", 1) or 1
         h.update(("%dx%d:%d" % (img.width, img.height, frames)).encode())
         for i in range(frames):

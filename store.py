@@ -181,7 +181,7 @@ def make_thumbnail(src, dest, kind):
                     os.remove(temp)
                 except OSError:
                     pass
-    with Image.open(src) as img:
+    with md.open_image(src) as img:
         width, height = img.size
         img.seek(0)
         img = ImageOps.exif_transpose(img)
@@ -495,23 +495,27 @@ class Library:
             return {}
 
     def file_families(self, files):
-        """Add a 'families' key to each listed output file (reads metadata once per file)."""
+        """Add 'families' and 'no_workflow' to each listed output file (reads
+        metadata once per file; both are kept in the same cache)."""
         changed = False
         for f in files:
             key = "v%s|%s|%s|%s|%s" % (md.SUMMARY_VERSION, f["root"], f["rel"], f["size"], f["mtime"])
-            if key not in self._families:
+            if key not in self._families or "wf|" + key not in self._families:
                 try:
                     path = self.root_path(f["root"], f["rel"])
                     prompt, workflow = md.extract(path)
                     self._families[key] = md.detect_families(prompt, path, workflow)
+                    self._families["wf|" + key] = prompt is None and workflow is None
                     if f["root"] == "output":
                         # Read anyway: saves the background reading of the steps of runs.
                         from . import steps
                         steps.remember((f["rel"], f["size"], f["mtime"]), prompt)
                 except Exception:
                     self._families[key] = None
+                    self._families["wf|" + key] = False
                 changed = True
             f["families"] = self._families[key] or []
+            f["no_workflow"] = bool(self._families.get("wf|" + key))
         if changed:
             try:
                 _atomic_write_json(self._families_path, self._families)
